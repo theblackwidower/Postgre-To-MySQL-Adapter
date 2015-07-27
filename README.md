@@ -32,7 +32,7 @@ Will not support:
 	connection must always be specified on queries and prepared statements.
 ```
 
-##Other Known Issues
+###Other Known Issues
 One user has reported problems with prepared statements. I have built a workaround that bypasses prepared statements entirely, but have chosen not to upload it for three reasons. First, it allows for SQL injection that prepared statements are intended to foil, defeating the purpose of prepared statements and creating a massive security hole. Second, I'm certain there's a better way, but I haven't had the chance to properly diagnose the problem yet. Third, the file that contains the fix is old and hasn't been updated with the improvements from the original. 
 
 If any further reports of this issue crop up, and we are unable to find a more workable fix, I will upload my old kludgy workaround.
