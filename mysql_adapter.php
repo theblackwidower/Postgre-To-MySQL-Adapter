@@ -1,12 +1,11 @@
 <?php
 /*
 Will not support:
-	Prepared statements with parameters in an arbitrary order
-		(must use standard numerological order: $1, $2, $3, etc...)
 	pg_fetch_result, pg_fetch_row and pg_fetch_assoc must specify row number.
 		Otherwise the first row will always be called.
 	pg_connect won't allow custom options
-	pg_query might have problems detecting whether there are one or more than one queries in a call
+	pg_query might have problems detecting whether there are one 
+		or more than one queries in a call. 
 	
 	includes replacements for:
 		pg_connect
@@ -53,9 +52,7 @@ if (!extension_loaded('pgsql'))
 		{
 			$endPoint = strpos($part,'=');
 			if ($endPoint === false)
-			{
 				$isError = true;
-			}
 			else
 			{
 				$parameter = substr($part, $endPoint + 1);
@@ -209,10 +206,14 @@ if (!extension_loaded('pgsql'))
 			$msqli_stmt[$thread] = array();
 		
 		$mysqli_query = preg_replace('/\$\d*/', '?', $query);
-		if (strpos($mysqli_query, '?') !== false)
-			$msqli_stmt[$thread][$name] = $connection->prepare($mysqli_query);
-		else
+		if (strpos($mysqli_query, '?') === false)
 			$msqli_stmt[$thread][$name] = $mysqli_query; //for static prepared statements
+		else
+		{
+			$msqli_stmt[$thread][$name]['obj'] = $connection->prepare($mysqli_query);
+			preg_match_all('/\$(\d*)/', $query, $order);
+			$msqli_stmt[$thread][$name]['order'] = $order[1];
+		}
 	}
 	
 	//taken from http://stackoverflow.com/questions/3681262/php5-3-mysqli-stmtbind-params-with-call-user-func-array-warnings
@@ -248,30 +249,31 @@ if (!extension_loaded('pgsql'))
 		
 		//is statement static
 		if (is_string($msqli_stmt[$thread][$name]))
-		{
 			$output = $connection->query($msqli_stmt[$thread][$name]);
-		}
 		else
 		{
 			$types = "";
+			$mysqli_params = array();
 			//records the parameter types for the execution of the statement
-			foreach ($params as $one_param)
+			foreach ($msqli_stmt[$thread][$name]['order'] as $index)
 			{
-				if (is_int($one_param))
+				array_push($mysqli_params, $params[$index - 1]);
+				
+				if (is_int($params[$index - 1]))
 					$types .= 'i';
-				else if (is_float($one_param))
+				else if (is_float($params[$index - 1]))
 					$types .= 'd';
-				else if (is_string($one_param))
+				else if (is_string($params[$index - 1]))
 					$types .= 's';
 				else //something might've gone wrong
 					$types .= ' ';
 			}
 			//sets parameters in mysqli statement object
-			call_user_func_array(array($msqli_stmt[$thread][$name], 'bind_param'), array_merge(array($types), refValues($params)));
+			call_user_func_array(array($msqli_stmt[$thread][$name]['obj'], 'bind_param'), array_merge(array($types), refValues($mysqli_params)));
 			//runs prepared statement
-			$msqli_stmt[$thread][$name]->execute();
+			$msqli_stmt[$thread][$name]['obj']->execute();
 			//fetches result
-			$output = $msqli_stmt[$thread][$name]->get_result();
+			$output = $msqli_stmt[$thread][$name]['obj']->get_result();
 		}
 		return $output;
 	}
