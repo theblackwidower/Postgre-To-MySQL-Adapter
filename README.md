@@ -10,6 +10,8 @@ This is especially helpful if you're migrating your site between servers.
 
 So far, only the following PostgreSQL functions are supported:
 * pg_connect
+* pg_close
+* pg_​delete
 * pg_query
 * pg_num_rows
 * pg_fetch_result
