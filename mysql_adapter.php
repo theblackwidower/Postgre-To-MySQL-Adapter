@@ -1,12 +1,14 @@
 <?php
 /*
 Will not support:
-	pg_fetch_result, pg_fetch_row, pg_​fetch_​array, pg_fetch_assoc
-		and pg_​field_​is_​null must specify row number.
+	pg_fetch_result, pg_fetch_row, pg_​fetch_​array, pg_fetch_assoc,
+		pg_​fetch_​object and pg_​field_​is_​null must specify row number.
 		Otherwise the first row will always be called.
 	pg_connect, pg_delete, and pg_insert won't allow custom options
 	pg_query might have problems detecting whether there are one
 		or more than one queries in a call.
+	pg_field_table cannot fetch OID
+	Error handling is missing from most of the functions
 	
 	includes replacements for:
 		pg_connect
@@ -25,7 +27,13 @@ Will not support:
 		pg_fetch_assoc
 		pg_​fetch_​all_​columns
 		pg_fetch_all
+		pg_​fetch_​object
 		pg_​field_​is_​null
+		pg_​field_​name
+		pg_​field_​num
+		pg_​field_​size
+		pg_​field_​table
+		pg_field_type
 	
 	Uses MySQLi objects instead of connection resources, and mysqli_result objects instead of result resources.
 	
@@ -534,7 +542,41 @@ if (!extension_loaded('pgsql'))
 		return $results;
 	}
 	
-	function pg_​field_​is_​null($data)//TODO: fix how row field is handled
+	function pg_​fetch_​object() //TODO: fix how row field is handled
+	{							//NB: result_type is Ignored and deprecated
+		if (func_num_args() == 1)
+		{
+			$data = func_get_arg(0);
+			$index = 0;
+			$class_name = 'stdClass';
+			$params = null;
+		}
+		else if (func_num_args() == 2)
+		{
+			$data = func_get_arg(0);
+			$index = func_get_arg(1);
+			$class_name = 'stdClass';
+			$params = null;
+		}
+		else if (func_num_args() == 3)
+		{
+			$data = func_get_arg(0);
+			$index = func_get_arg(1);
+			$class_name = func_get_arg(2);
+			$params = null;
+		}
+		else if (func_num_args() == 4)
+		{
+			$data = func_get_arg(0);
+			$index = func_get_arg(1);
+			$class_name = func_get_arg(2);
+			$params = func_get_arg(3);
+		}
+		$data->data_seek($index);
+		return $data->fetch_object($class_name, $params);
+	}
+	
+	function pg_​field_​is_​null()//TODO: fix how row field is handled
 	{
 		if (func_num_args() == 2)
 		{
@@ -558,5 +600,56 @@ if (!extension_loaded('pgsql'))
 			$return = 0;
 		
 		return $return;
+	}
+	
+	function pg_​field_​name($data, $col_index)
+	{
+		$data->field_seek($col_index);
+		$col_data = $data->fetch_field();
+		return $col_data->name;
+	}
+	
+	function pg_​field_​num($data, $col_name)
+	{
+		$all_cols = $data->fetch_fields();
+		$count = count($all_cols);
+		$return = -1;
+		for ($i = 0; $i < $count; $i++)
+			if ($all_cols[$i]->name == $col_name)
+				$return = $i;
+		return $return;
+	}
+	
+	function pg_​field_​size($data, $col_index)
+	{
+		$data->field_seek($col_index);
+		$col_data = $data->fetch_field();
+		return $col_data->length;
+	}
+	
+	function pg_​field_​table()//TODO: support OID
+	{
+		if (func_num_args() == 2)
+		{
+			$data = func_get_arg(0);
+			$col_index = func_get_arg(1);
+			//$is_oid = false;
+		}
+		else if (func_num_args() == 3)
+		{
+			$data = func_get_arg(0);
+			$col_index = func_get_arg(1);
+			//$is_oid = func_get_arg(2);
+		}
+		$data->field_seek($col_index);
+		$col_data = $data->fetch_field();
+		$return = $col_data->table;
+	}
+	
+	function pg_field_type($data, $col_index)
+	{
+		$data->field_seek($col_index);
+		$col_data = $data->fetch_field();
+		return $col_data->type;
 	}
 }

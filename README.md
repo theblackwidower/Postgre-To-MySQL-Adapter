@@ -25,19 +25,27 @@ So far, only the following PostgreSQL functions are supported:
 * pg_fetch_assoc
 * pg_​fetch_​all_​columns
 * pg_fetch_all
+* pg_​fetch_​object
 * pg_​field_​is_​null
+* pg_​field_​name
+* pg_​field_​num
+* pg_​field_​size
+* pg_​field_​table
+* pg_field_type
 
 Though more may be added as they are requested or required.
 
 There are also a few limitations I have yet to work around:
 ```
 Will not support:
-	pg_fetch_result, pg_fetch_row, pg_​fetch_​array, pg_fetch_assoc
-		and pg_​field_​is_​null must specify row number.
+	pg_fetch_result, pg_fetch_row, pg_​fetch_​array, pg_fetch_assoc,
+		pg_​fetch_​object and pg_​field_​is_​null must specify row number.
 		Otherwise the first row will always be called.
 	pg_connect, pg_delete, and pg_insert won't allow custom options
 	pg_query might have problems detecting whether there are one
 		or more than one queries in a call.
+	pg_field_table cannot fetch OID
+	Error handling is missing from most of the functions
 ```
 
 Not all features have been fully tested, due to the limitations of my set-up, lack of time, and personal overconfidence. However, I plan to support this adapter to the best of my ability, as long as I can. If anyone encounters any issues, please report them, and I will try my best to tackle them, and issue a fix as soon as I am able.
