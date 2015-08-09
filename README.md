@@ -12,12 +12,15 @@ So far, only the following PostgreSQL functions are supported:
 * pg_connect
 * pg_close
 * pg_dbname
+* pg_host
+
 * pg_​delete
 * pg_​insert
 * pg_query
 * pg_​query_​params
 * pg_prepare
 * pg_execute
+
 * pg_num_rows
 * pg_fetch_result
 * pg_fetch_row
@@ -26,6 +29,7 @@ So far, only the following PostgreSQL functions are supported:
 * pg_​fetch_​all_​columns
 * pg_fetch_all
 * pg_​fetch_​object
+
 * pg_​field_​is_​null
 * pg_​field_​name
 * pg_​field_​num

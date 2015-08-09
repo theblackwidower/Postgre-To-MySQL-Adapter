@@ -14,12 +14,15 @@ Will not support:
 		pg_connect
 		pg_close
 		pg_dbname
+		pg_host
+		
 		pg_​delete
 		pg_​insert
 		pg_query
 		pg_​query_​params
 		pg_prepare
 		pg_execute
+		
 		pg_num_rows
 		pg_fetch_result
 		pg_fetch_row
@@ -28,13 +31,14 @@ Will not support:
 		pg_​fetch_​all_​columns
 		pg_fetch_all
 		pg_​fetch_​object
+		
 		pg_​field_​is_​null
 		pg_​field_​name
 		pg_​field_​num
 		pg_​field_​size
 		pg_​field_​table
 		pg_field_type
-	
+		
 	Uses MySQLi objects instead of connection resources, and mysqli_result objects instead of result resources.
 	
 	For more information:
@@ -60,7 +64,7 @@ if (!extension_loaded('pgsql'))
 	//in lieu of that, this array will hold mysqli_stmt objects,
 	//as well as query strings for static prepared statements (those that take no parameters).
 	$np_p2m_stmts = array();
-	$np_p2m_curr_dbname = array();
+	$np_p2m_conn_info = array();
 	
 	//will hold the last created connection
 	$np_p2m_last_conn = null;
@@ -146,14 +150,17 @@ if (!extension_loaded('pgsql'))
 		if ($isError)
 			$return = false;
 		else
-			$return = new mysqli($hostname, $username, $password, $database, $db_port);
-		
-		if ($return !== false)
 		{
-			$np_p2m_last_conn = $return;
-			$np_p2m_curr_dbname[$return->thread_id] = $database;
+			$return = new mysqli($hostname, $username, $password, $database, $db_port);
+			if ($return !== false)
+			{
+				$np_p2m_last_conn = $return;
+				$thread = $return->thread_id;
+				$np_p2m_conn_info[$thread] = array();
+				$np_p2m_conn_info[$thread]['dbname'] = $database;
+				$np_p2m_conn_info[$thread]['host'] = $hostname;
+			}
 		}
-		
 		return $return;
 	}
 	
@@ -178,8 +185,19 @@ if (!extension_loaded('pgsql'))
 		else if (func_num_args() == 1)
 			$connection = func_get_arg(0);
 		
+		return $np_p2m_conn_info[$connection->thread_id]['dbname'];
+	}
+	
+	function pg_host()
+	{
+		global $np_p2m_last_conn;
 		
-		return $np_p2m_curr_dbname[$connection->thread_id];
+		if (func_num_args() == 0)
+			$connection = $np_p2m_last_conn;
+		else if (func_num_args() == 1)
+			$connection = func_get_arg(0);
+		
+		return $np_p2m_conn_info[$connection->thread_id]['host'];
 	}
 	
 	function pg_​delete()//TODO: allow options
