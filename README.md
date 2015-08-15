@@ -14,27 +14,27 @@ So far, only the following PostgreSQL functions are supported:
 * pg_dbname
 * pg_host
 
-* pg_​delete
-* pg_​insert
+* pg_delete
+* pg_insert
 * pg_query
-* pg_​query_​params
+* pg_query_params
 * pg_prepare
 * pg_execute
 
 * pg_num_rows
 * pg_fetch_result
 * pg_fetch_row
-* pg_​fetch_​array
+* pg_fetch_array
 * pg_fetch_assoc
-* pg_​fetch_​all_​columns
+* pg_fetch_all_columns
 * pg_fetch_all
-* pg_​fetch_​object
+* pg_fetch_object
 
-* pg_​field_​is_​null
-* pg_​field_​name
-* pg_​field_​num
-* pg_​field_​size
-* pg_​field_​table
+* pg_field_is_null
+* pg_field_name
+* pg_field_num
+* pg_field_size
+* pg_field_table
 * pg_field_type
 
 Though more may be added as they are requested or required.
@@ -42,8 +42,8 @@ Though more may be added as they are requested or required.
 There are also a few limitations I have yet to work around:
 ```
 Will not support:
-	pg_fetch_result, pg_fetch_row, pg_​fetch_​array, pg_fetch_assoc,
-		pg_​fetch_​object and pg_​field_​is_​null must specify row number.
+	pg_fetch_result, pg_fetch_row, pg_fetch_array, pg_fetch_assoc,
+		pg_fetch_object and pg_field_is_null must specify row number.
 		Otherwise the first row will always be called.
 	pg_connect, pg_delete, and pg_insert won't allow custom options
 	pg_query might have problems detecting whether there are one

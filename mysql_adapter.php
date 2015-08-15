@@ -1,8 +1,8 @@
 <?php
 /*
 Will not support:
-	pg_fetch_result, pg_fetch_row, pg_​fetch_​array, pg_fetch_assoc,
-		pg_​fetch_​object and pg_​field_​is_​null must specify row number.
+	pg_fetch_result, pg_fetch_row, pg_fetch_array, pg_fetch_assoc,
+		pg_fetch_object and pg_field_is_null must specify row number.
 		Otherwise the first row will always be called.
 	pg_connect, pg_delete, and pg_insert won't allow custom options
 	pg_query might have problems detecting whether there are one
@@ -16,27 +16,27 @@ Will not support:
 		pg_dbname
 		pg_host
 		
-		pg_​delete
-		pg_​insert
+		pg_delete
+		pg_insert
 		pg_query
-		pg_​query_​params
+		pg_query_params
 		pg_prepare
 		pg_execute
 		
 		pg_num_rows
 		pg_fetch_result
 		pg_fetch_row
-		pg_​fetch_​array
+		pg_fetch_array
 		pg_fetch_assoc
-		pg_​fetch_​all_​columns
+		pg_fetch_all_columns
 		pg_fetch_all
-		pg_​fetch_​object
+		pg_fetch_object
 		
-		pg_​field_​is_​null
-		pg_​field_​name
-		pg_​field_​num
-		pg_​field_​size
-		pg_​field_​table
+		pg_field_is_null
+		pg_field_name
+		pg_field_num
+		pg_field_size
+		pg_field_table
 		pg_field_type
 		
 	Uses MySQLi objects instead of connection resources, and mysqli_result objects instead of result resources.
@@ -47,7 +47,7 @@ Will not support:
 */
 if (!extension_loaded('pgsql'))
 {
-	define("PGSQL_LIBPQ_VERSION", 'v2015-08-08');
+	define("PGSQL_LIBPQ_VERSION", 'v2015-08-15');
 	
 	echo "<!--\n";
 	echo "Postgre to MySQL Adapter (".PGSQL_LIBPQ_VERSION.") Loaded\n";
@@ -64,11 +64,97 @@ if (!extension_loaded('pgsql'))
 	//in lieu of that, this array will hold mysqli_stmt objects,
 	//as well as query strings for static prepared statements (those that take no parameters).
 	$np_p2m_stmts = array();
-	$np_p2m_conn_info = array();
 	
 	//will hold the last created connection
 	$np_p2m_last_conn = null;
 	
+	class np_p2m_link_resource
+	{
+		public $mysqli_connection;
+		//prepares initial holder variables in advance
+		public $hostname = NULL;
+		public $database = NULL;
+		public $port = NULL;
+		//public $options = NULL;
+		public $is_error = false;
+		public function __construct($connection_string)
+		{
+			$username = NULL;
+			$password = NULL;
+
+			$elements = explode(' ', $connection_string);
+			foreach($elements as $part)
+			{
+				$endPoint = strpos($part,'=');
+				if ($endPoint === false)
+					$this->is_error = true;
+				else
+				{
+					$parameter = substr($part, $endPoint + 1);
+					switch (substr($part, 0, $endPoint))
+					{
+						case 'host':
+							$this->hostname = $parameter;
+							break;
+						case 'dbname':
+							$this->database = $parameter;
+							break;
+						case 'user':
+							$username = $parameter;
+							break;
+						case 'password':
+							$password = $parameter;
+							break;
+						case 'port':
+							$this->port = $parameter;
+							break;
+						case 'options':
+							//$options = $parameter;
+							break;
+						default:
+							$this->is_error = true;
+					}
+				}
+			}
+			if (!$this->is_error)
+			{
+				$this->mysqli_connection = new mysqli($this->hostname, $username, $password, $this->database, $db_port);
+				if (!is_null($this->mysqli_connection->connect_error))
+					$this->is_error = true;
+			}
+		}
+		
+		public function prepare($query)
+		{
+			return $this->mysqli_connection->prepare($query);
+		}
+		public function query($query)
+		{
+			return $this->mysqli_connection->query($query);
+		}
+	}
+	class np_p2m_result_resource
+	{
+		public function __construct($mysqli_result_object)
+		{
+			
+		}
+	}
+	
+	class np_p2m_converted_stmts
+	{
+		private $object;
+		private $database;
+		public function __construct($query_statement)
+		{
+			
+		}
+		
+		public function execute($query)
+		{
+			return $this->mysqli_connection->prepare($query);
+		}
+	}
 	/*****************
 	Internal functions
 	*****************/
@@ -103,65 +189,14 @@ if (!extension_loaded('pgsql'))
 	{
 		global $np_p2m_last_conn;
 		
-		$isError = false;
-		
-		//prepares initial holder variables in advance
-		$hostname = NULL;
-		$username = NULL;
-		$password = NULL;
-		$database = NULL;
-		$port = NULL;
-		//$options = NULL;
-		
-		$elements = explode(' ', $connection_string);
-		foreach($elements as $part)
-		{
-			$endPoint = strpos($part,'=');
-			if ($endPoint === false)
-				$isError = true;
-			else
-			{
-				$parameter = substr($part, $endPoint + 1);
-				switch (substr($part, 0, $endPoint))
-				{
-					case 'host':
-						$hostname = $parameter;
-						break;
-					case 'dbname':
-						$database = $parameter;
-						break;
-					case 'user':
-						$username = $parameter;
-						break;
-					case 'password':
-						$password = $parameter;
-						break;
-					case 'port':
-						$port = $parameter;
-						break;
-					case 'options':
-						//$options = $parameter;
-						break;
-					default:
-						$isError = true;
-				}
-			}
-		}
-		if ($isError)
-			$return = false;
+		$link = new np_p2m_link_resource($connection_string);
+
+		if ($link->is_error)
+			$link = false;
 		else
-		{
-			$return = new mysqli($hostname, $username, $password, $database, $db_port);
-			if ($return !== false)
-			{
-				$np_p2m_last_conn = $return;
-				$thread = $return->thread_id;
-				$np_p2m_conn_info[$thread] = array();
-				$np_p2m_conn_info[$thread]['dbname'] = $database;
-				$np_p2m_conn_info[$thread]['host'] = $hostname;
-			}
-		}
-		return $return;
+			$np_p2m_last_conn = $link;
+		
+		return $link;
 	}
 	
 	function pg_close()
@@ -169,11 +204,11 @@ if (!extension_loaded('pgsql'))
 		global $np_p2m_last_conn;
 		
 		if (func_num_args() == 0)
-			$connection = $np_p2m_last_conn;
+			$link = $np_p2m_last_conn;
 		else if (func_num_args() == 1)
-			$connection = func_get_arg(0);
+			$link = func_get_arg(0);
 		
-		return $connection->close();
+		return $link->mysqli_connection->close();
 	}
 	
 	function pg_dbname()
@@ -181,11 +216,11 @@ if (!extension_loaded('pgsql'))
 		global $np_p2m_last_conn;
 		
 		if (func_num_args() == 0)
-			$connection = $np_p2m_last_conn;
+			$link = $np_p2m_last_conn;
 		else if (func_num_args() == 1)
-			$connection = func_get_arg(0);
+			$link = func_get_arg(0);
 		
-		return $np_p2m_conn_info[$connection->thread_id]['dbname'];
+		return $link->database;
 	}
 	
 	function pg_host()
@@ -193,25 +228,25 @@ if (!extension_loaded('pgsql'))
 		global $np_p2m_last_conn;
 		
 		if (func_num_args() == 0)
-			$connection = $np_p2m_last_conn;
+			$link = $np_p2m_last_conn;
 		else if (func_num_args() == 1)
-			$connection = func_get_arg(0);
+			$link = func_get_arg(0);
 		
-		return $np_p2m_conn_info[$connection->thread_id]['host'];
+		return $link->hostname;
 	}
 	
-	function pg_​delete()//TODO: allow options
+	function pg_delete()//TODO: allow options
 	{
 		if (func_num_args() == 3)
 		{
-			$connection = func_get_arg(0);
+			$link = func_get_arg(0);
 			$table = func_get_arg(1);
 			$row_array = func_get_arg(2);
 			//$options = PGSQL_DML_EXEC;
 		}
 		else if (func_num_args() == 4)
 		{
-			$connection = func_get_arg(0);
+			$link = func_get_arg(0);
 			$table = func_get_arg(1);
 			$row_array = func_get_arg(2);
 			//$options = func_get_arg(3);
@@ -227,23 +262,23 @@ if (!extension_loaded('pgsql'))
 			foreach ($row_array as $field => $value)
 				$query .= $field." = ".$value." AND ";
 			
-			$return = $connection->query(substr($query, 0, -5));
+			$return = $link->query(substr($query, 0, -5));
 		}
 		return $return;
 	}
 	
-	function pg_​insert()//TODO: allow options
+	function pg_insert()//TODO: allow options
 	{
 		if (func_num_args() == 3)
 		{
-			$connection = func_get_arg(0);
+			$link = func_get_arg(0);
 			$table = func_get_arg(1);
 			$row_array = func_get_arg(2);
 			//$options = PGSQL_DML_EXEC;
 		}
 		else if (func_num_args() == 4)
 		{
-			$connection = func_get_arg(0);
+			$link = func_get_arg(0);
 			$table = func_get_arg(1);
 			$row_array = func_get_arg(2);
 			//$options = func_get_arg(3);
@@ -264,7 +299,7 @@ if (!extension_loaded('pgsql'))
 			}
 			$query = "INSERT INTO ".$table." (".substr($fields, 0, -2).') VALUES ('.substr($values, 0, -2).')';
 			
-			$return = $connection->query($query);
+			$return = $link->query($query);
 		}
 		return $return;
 	}
@@ -275,12 +310,12 @@ if (!extension_loaded('pgsql'))
 		
 		if (func_num_args() == 1)
 		{
-			$connection = $np_p2m_last_conn;
+			$link = $np_p2m_last_conn;
 			$query = func_get_arg(0);
 		}
 		else if (func_num_args() == 2)
 		{
-			$connection = func_get_arg(0);
+			$link = func_get_arg(0);
 			$query = func_get_arg(1);
 		}
 		
@@ -293,27 +328,26 @@ if (!extension_loaded('pgsql'))
 		
 		//TODO: parse the individual statements and return query results on multiples.
 		if ($count > 1)
-			$result = $connection->multi_query($query);
+			$result = $link->mysqli_connection->multi_query($query);
 		else
-			$result = $connection->query($query);
+			$result = $link->query($query);
 		
 		return $result;
 	}
 	
-	function pg_​query_​params()
+	function pg_query_params()
 	{
 		global $np_p2m_last_conn;
 		
 		if (func_num_args() == 2)
 		{
-			$connection = $np_p2m_last_conn;
+			$link = $np_p2m_last_conn;
 			$query = func_get_arg(0);
 			$params = func_get_arg(1);
-			
 		}
 		else if (func_num_args() == 3)
 		{
-			$connection = func_get_arg(0);
+			$link = func_get_arg(0);
 			$query = func_get_arg(1);
 			$params = func_get_arg(2);
 		}
@@ -322,7 +356,7 @@ if (!extension_loaded('pgsql'))
 		
 		$mysqli_query = np_p2m_stmt_conv($query);
 		if ($mysqli_query === false)
-			$output = $connection->query($query);
+			$output = $link->query($query);
 		else
 		{
 			preg_match_all('/\$(\d*)/', $query, $order);
@@ -342,7 +376,7 @@ if (!extension_loaded('pgsql'))
 				else //something might've gone wrong
 					$types .= ' ';
 			}
-			$stmt = $connection->prepare($mysqli_query);
+			$stmt = $link->prepare($mysqli_query);
 			//sets parameters in mysqli statement object
 			call_user_func_array(array($stmt, 'bind_param'), array_merge(array($types), np_p2m_refValues($mysqli_params)));
 			//runs prepared statement
@@ -361,20 +395,20 @@ if (!extension_loaded('pgsql'))
 		if (func_num_args() == 2)
 		{
 			//defaults to last created connection
-			$connection = $np_p2m_last_conn;
+			$link = $np_p2m_last_conn;
 			$name = func_get_arg(0);
 			$query = func_get_arg(1);
 		}
 		else if (func_num_args() == 3)
 		{
-			$connection = func_get_arg(0);
+			$link = func_get_arg(0);
 			$name = func_get_arg(1);
 			$query = func_get_arg(2);
 		}
 		
 		np_p2m_query_sanitize($query);
 		
-		$thread = $connection->thread_id;
+		$thread = $link->mysqli_connection->thread_id;
 		if (!isset($np_p2m_stmts[$thread]))
 			$np_p2m_stmts[$thread] = array();
 		
@@ -383,7 +417,7 @@ if (!extension_loaded('pgsql'))
 			$np_p2m_stmts[$thread][$name] = $query; //for static prepared statements
 		else
 		{
-			$np_p2m_stmts[$thread][$name]['obj'] = $connection->prepare($mysqli_query);
+			$np_p2m_stmts[$thread][$name]['obj'] = $link->prepare($mysqli_query);
 			preg_match_all('/\$(\d*)/', $query, $order);
 			$np_p2m_stmts[$thread][$name]['order'] = $order[1];
 		}
@@ -397,22 +431,22 @@ if (!extension_loaded('pgsql'))
 		if (func_num_args() == 2)
 		{
 			//defaults to last created connection
-			$connection = $np_p2m_last_conn;
+			$link = $np_p2m_last_conn;
 			$name = func_get_arg(0);
 			$params = func_get_arg(1);
 		}
 		else if (func_num_args() == 3)
 		{
-			$connection = func_get_arg(0);
+			$link = func_get_arg(0);
 			$name = func_get_arg(1);
 			$params = func_get_arg(2);
 		}
 		
-		$thread = $connection->thread_id;
+		$thread = $link->mysqli_connection->thread_id;
 		
 		//is statement static
 		if (is_string($np_p2m_stmts[$thread][$name]))
-			$output = $connection->query($np_p2m_stmts[$thread][$name]);
+			$output = $link->query($np_p2m_stmts[$thread][$name]);
 		else
 		{
 			$types = "";
@@ -481,7 +515,7 @@ if (!extension_loaded('pgsql'))
 		return $data->fetch_row();
 	}
 	
-	function pg_​fetch_​array()//TODO: fix how row field is handled
+	function pg_fetch_array()//TODO: fix how row field is handled
 	{
 		if (func_num_args() == 1)
 		{
@@ -529,7 +563,7 @@ if (!extension_loaded('pgsql'))
 		return $data->fetch_assoc();
 	}
 	
-	function pg_​fetch_​all_​columns()
+	function pg_fetch_all_columns()
 	{
 		if (func_num_args() == 1)
 		{
@@ -560,7 +594,7 @@ if (!extension_loaded('pgsql'))
 		return $results;
 	}
 	
-	function pg_​fetch_​object() //TODO: fix how row field is handled
+	function pg_fetch_object() //TODO: fix how row field is handled
 	{							//NB: result_type is Ignored and deprecated
 		if (func_num_args() == 1)
 		{
@@ -594,7 +628,7 @@ if (!extension_loaded('pgsql'))
 		return $data->fetch_object($class_name, $params);
 	}
 	
-	function pg_​field_​is_​null()//TODO: fix how row field is handled
+	function pg_field_is_null()//TODO: fix how row field is handled
 	{
 		if (func_num_args() == 2)
 		{
@@ -620,14 +654,14 @@ if (!extension_loaded('pgsql'))
 		return $return;
 	}
 	
-	function pg_​field_​name($data, $col_index)
+	function pg_field_name($data, $col_index)
 	{
 		$data->field_seek($col_index);
 		$col_data = $data->fetch_field();
 		return $col_data->name;
 	}
 	
-	function pg_​field_​num($data, $col_name)
+	function pg_field_num($data, $col_name)
 	{
 		$all_cols = $data->fetch_fields();
 		$count = count($all_cols);
@@ -638,14 +672,14 @@ if (!extension_loaded('pgsql'))
 		return $return;
 	}
 	
-	function pg_​field_​size($data, $col_index)
+	function pg_field_size($data, $col_index)
 	{
 		$data->field_seek($col_index);
 		$col_data = $data->fetch_field();
 		return $col_data->length;
 	}
 	
-	function pg_​field_​table()//TODO: support OID
+	function pg_field_table()//TODO: support OID
 	{
 		if (func_num_args() == 2)
 		{
