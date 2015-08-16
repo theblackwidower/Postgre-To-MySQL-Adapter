@@ -133,6 +133,7 @@ if (!extension_loaded('pgsql'))
 			return $this->mysqli_connection->query($query);
 		}
 	}
+	
 	class np_p2m_result_resource
 	{
 		public function __construct($mysqli_result_object)
@@ -141,18 +142,62 @@ if (!extension_loaded('pgsql'))
 		}
 	}
 	
-	class np_p2m_converted_stmts
+	class np_p2m_converted_stmt
 	{
-		private $object;
-		private $database;
-		public function __construct($query_statement)
+		private $link; //stores either mysqli object, or mysqli_stmt object
+		private $detail; //stores either static query, or array with the proper parameter order
+		
+		private $is_static = false;
+		public function __construct($query_statement, $link)
 		{
+			np_p2m_query_sanitize($query_statement);
 			
+			$mysqli_query = np_p2m_stmt_conv($query_statement);
+			if ($mysqli_query === false)//for static prepared statements
+			{
+				$this->is_static = true;
+				$this->link = $link;
+				$this->detail = $query_statement;
+			}
+			else
+			{
+				$this->is_static = false;
+				$this->link = $link->prepare($mysqli_query);
+				preg_match_all('/\$(\d*)/', $query_statement, $order);
+				$this->detail = $order[1];
+			}
 		}
 		
-		public function execute($query)
+		public function execute($params)
 		{
-			return $this->mysqli_connection->prepare($query);
+			if ($this->is_static)
+				$output = $this->link->query($this->detail);
+			else
+			{
+				$types = "";
+				$mysqli_params = array();
+				//records the parameter types for the execution of the statement
+				foreach ($this->detail as $index)
+				{
+					array_push($mysqli_params, $params[$index - 1]);
+					
+					if (is_int($params[$index - 1]))
+						$types .= 'i';
+					else if (is_float($params[$index - 1]))
+						$types .= 'd';
+					else if (is_string($params[$index - 1]))
+						$types .= 's';
+					else //something might've gone wrong
+						$types .= ' ';
+				}
+				//sets parameters in mysqli statement object
+				call_user_func_array(array($this->link, 'bind_param'), array_merge(array($types), np_p2m_refValues($mysqli_params)));
+				//runs prepared statement
+				$this->link->execute();
+				//fetches result
+				$output = $this->link->get_result();
+			}
+			return $output;
 		}
 	}
 	/*****************
@@ -352,39 +397,9 @@ if (!extension_loaded('pgsql'))
 			$params = func_get_arg(2);
 		}
 		
-		np_p2m_query_sanitize($query);
+		$stmt = new np_p2m_converted_stmt($query, $link);
 		
-		$mysqli_query = np_p2m_stmt_conv($query);
-		if ($mysqli_query === false)
-			$output = $link->query($query);
-		else
-		{
-			preg_match_all('/\$(\d*)/', $query, $order);
-			$types = "";
-			$mysqli_params = array();
-			//records the parameter types for the execution of the statement
-			foreach ($order[1] as $index)
-			{
-				array_push($mysqli_params, $params[$index - 1]);
-				
-				if (is_int($params[$index - 1]))
-					$types .= 'i';
-				else if (is_float($params[$index - 1]))
-					$types .= 'd';
-				else if (is_string($params[$index - 1]))
-					$types .= 's';
-				else //something might've gone wrong
-					$types .= ' ';
-			}
-			$stmt = $link->prepare($mysqli_query);
-			//sets parameters in mysqli statement object
-			call_user_func_array(array($stmt, 'bind_param'), array_merge(array($types), np_p2m_refValues($mysqli_params)));
-			//runs prepared statement
-			$stmt->execute();
-			//fetches result
-			$output = $stmt->get_result();
-		}
-		return $output;
+		return $stmt->execute($params);
 	}
 	
 	function pg_prepare()
@@ -406,21 +421,11 @@ if (!extension_loaded('pgsql'))
 			$query = func_get_arg(2);
 		}
 		
-		np_p2m_query_sanitize($query);
-		
 		$thread = $link->mysqli_connection->thread_id;
 		if (!isset($np_p2m_stmts[$thread]))
 			$np_p2m_stmts[$thread] = array();
 		
-		$mysqli_query = np_p2m_stmt_conv($query);
-		if ($mysqli_query === false)
-			$np_p2m_stmts[$thread][$name] = $query; //for static prepared statements
-		else
-		{
-			$np_p2m_stmts[$thread][$name]['obj'] = $link->prepare($mysqli_query);
-			preg_match_all('/\$(\d*)/', $query, $order);
-			$np_p2m_stmts[$thread][$name]['order'] = $order[1];
-		}
+		$np_p2m_stmts[$thread][$name] = new np_p2m_converted_stmt($query, $link);
 	}
 	
 	function pg_execute()
@@ -444,35 +449,7 @@ if (!extension_loaded('pgsql'))
 		
 		$thread = $link->mysqli_connection->thread_id;
 		
-		//is statement static
-		if (is_string($np_p2m_stmts[$thread][$name]))
-			$output = $link->query($np_p2m_stmts[$thread][$name]);
-		else
-		{
-			$types = "";
-			$mysqli_params = array();
-			//records the parameter types for the execution of the statement
-			foreach ($np_p2m_stmts[$thread][$name]['order'] as $index)
-			{
-				array_push($mysqli_params, $params[$index - 1]);
-				
-				if (is_int($params[$index - 1]))
-					$types .= 'i';
-				else if (is_float($params[$index - 1]))
-					$types .= 'd';
-				else if (is_string($params[$index - 1]))
-					$types .= 's';
-				else //something might've gone wrong
-					$types .= ' ';
-			}
-			//sets parameters in mysqli statement object
-			call_user_func_array(array($np_p2m_stmts[$thread][$name]['obj'], 'bind_param'), array_merge(array($types), np_p2m_refValues($mysqli_params)));
-			//runs prepared statement
-			$np_p2m_stmts[$thread][$name]['obj']->execute();
-			//fetches result
-			$output = $np_p2m_stmts[$thread][$name]['obj']->get_result();
-		}
-		return $output;
+		return $np_p2m_stmts[$thread][$name]->execute($params);
 	}
 	
 	function pg_num_rows($data)
