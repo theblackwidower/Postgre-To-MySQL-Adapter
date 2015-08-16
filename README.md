@@ -13,6 +13,7 @@ So far, only the following PostgreSQL functions are supported:
 * pg_close
 * pg_dbname
 * pg_host
+* pg_port
 
 * pg_delete
 * pg_insert

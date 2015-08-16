@@ -15,6 +15,7 @@ Will not support:
 		pg_close
 		pg_dbname
 		pg_host
+		pg_port
 		
 		pg_delete
 		pg_insert
@@ -60,23 +61,23 @@ if (!extension_loaded('pgsql'))
 	//constants from pgsql driver
 	define("PGSQL_ASSOC", 1); define("PGSQL_NUM", 2); define("PGSQL_BOTH", 3); define("PGSQL_CONNECT_FORCE_NEW", 2); define("PGSQL_CONNECT_ASYNC", 4); define("PGSQL_CONNECTION_BAD", 1); define("PGSQL_CONNECTION_OK", 0); define("PGSQL_SEEK_SET", 0); define("PGSQL_SEEK_CUR", 1); define("PGSQL_SEEK_END", 2); define("PGSQL_EMPTY_QUERY", 0); define("PGSQL_COMMAND_OK", 1); define("PGSQL_TUPLES_OK", 2); define("PGSQL_COPY_OUT", 3); define("PGSQL_COPY_IN", 4); define("PGSQL_BAD_RESPONSE", 5); define("PGSQL_NONFATAL_ERROR", 6); define("PGSQL_FATAL_ERROR", 7); define("PGSQL_TRANSACTION_IDLE", 0); define("PGSQL_TRANSACTION_ACTIVE", 1); define("PGSQL_TRANSACTION_INTRANS", 2); define("PGSQL_TRANSACTION_INERROR", 3); define("PGSQL_TRANSACTION_UNKNOWN", 4); define("PGSQL_DIAG_SEVERITY", 83); define("PGSQL_DIAG_SQLSTATE", 67); define("PGSQL_DIAG_MESSAGE_PRIMARY", 77); define("PGSQL_DIAG_MESSAGE_DETAIL", 68); define("PGSQL_DIAG_MESSAGE_HINT", 72); define("PGSQL_DIAG_STATEMENT_POSITION", 80); define("PGSQL_DIAG_INTERNAL_POSITION", 112); define("PGSQL_DIAG_INTERNAL_QUERY", 113); define("PGSQL_DIAG_CONTEXT", 87); define("PGSQL_DIAG_SOURCE_FILE", 70); define("PGSQL_DIAG_SOURCE_LINE", 76); define("PGSQL_DIAG_SOURCE_FUNCTION", 82); define("PGSQL_ERRORS_TERSE", 0); define("PGSQL_ERRORS_DEFAULT", 1); define("PGSQL_ERRORS_VERBOSE", 2); define("PGSQL_STATUS_LONG", 1); define("PGSQL_STATUS_STRING", 2); define("PGSQL_CONV_IGNORE_DEFAULT", 2); define("PGSQL_CONV_FORCE_NULL", 4); define("PGSQL_CONV_IGNORE_NOT_NULL", 8); define("PGSQL_DML_NO_CONV", 256); define("PGSQL_DML_EXEC", 512); define("PGSQL_DML_ASYNC", 1024); define("PGSQL_DML_STRING", 2048); define("PGSQL_DML_ESCAPE", 4096); define("PGSQL_POLLING_FAILED", 0); define("PGSQL_POLLING_READING", 1); define("PGSQL_POLLING_WRITING", 2); define("PGSQL_POLLING_OK", 3); define("PGSQL_POLLING_ACTIVE", 4);
 	
-	//in Postgre, prepared statements are stored server side.
-	//in lieu of that, this array will hold mysqli_stmt objects,
-	//as well as query strings for static prepared statements (those that take no parameters).
-	$np_p2m_stmts = array();
-	
 	//will hold the last created connection
 	$np_p2m_last_conn = null;
 	
 	class np_p2m_link_resource
 	{
-		public $mysqli_connection;
+		private $mysqli_connection;
+		//in Postgre, prepared statements are stored server side.
+		//in lieu of that, this array will hold mysqli_stmt objects,
+		//as well as query strings for static prepared statements (those that take no parameters).
+		private $converted_stmts = array();
 		//prepares initial holder variables in advance
-		public $hostname = NULL;
-		public $database = NULL;
-		public $port = NULL;
+		private $hostname = NULL;
+		private $database = NULL;
+		private $port = NULL;
 		//public $options = NULL;
-		public $is_error = false;
+		private $is_error = false;
+		
 		public function __construct($connection_string)
 		{
 			$username = NULL;
@@ -109,7 +110,7 @@ if (!extension_loaded('pgsql'))
 							$this->port = $parameter;
 							break;
 						case 'options':
-							//$options = $parameter;
+							//$this->options = $parameter;
 							break;
 						default:
 							$this->is_error = true;
@@ -124,13 +125,74 @@ if (!extension_loaded('pgsql'))
 			}
 		}
 		
-		public function prepare($query)
+		public function close()
 		{
-			return $this->mysqli_connection->prepare($query);
+			$return = $this->mysqli_connection->close();
+			$this->converted_stmts = array();
+			$this->hostname = NULL;
+			$this->database = NULL;
+			$this->port = NULL;
+			return $return;
+		}
+		
+		public function is_error()
+		{
+			return $this->is_error;
+		}
+		
+		public function conn()//kludge
+		{
+			return $this->mysqli_connection;
+		}
+		
+		public function get_info($call)
+		{
+			switch ($call)
+			{
+				case 'dbname':
+					$result = $this->database;
+					break;
+				case 'host':
+					$result = $this->hostname;
+					break;
+				case 'port':
+					$result = $this->port;
+					break;
+				default:
+					$result = '';
+			}
+			
+			return $result;
+		}
+		
+		public function prepare($name, $query)
+		{
+			$this->converted_stmts[$name] = new np_p2m_converted_stmt($query, $this->mysqli_connection);
+		}
+		
+		public function get_stmt($query)
+		{
+			return new np_p2m_converted_stmt($query, $this->mysqli_connection);
+		}
+		
+		public function execute($name, $params)
+		{
+			return $this->converted_stmts[$name]->execute($params);
 		}
 		public function query($query)
 		{
-			return $this->mysqli_connection->query($query);
+			//clear comments and count queries
+			//might have problems if there are only two queries, and the second query does not end in a semicolon
+			//might also run into issues if the symbol that indicates the start of a comment block is within quotes.
+			$count = preg_match_all('/.*?;/s', preg_replace('/--.*/', '', preg_replace('/\/\*.*?\*\//s', '', $query)));
+			
+			//TODO: parse the individual statements and return query results on multiples.
+			if ($count > 1)
+				$result = $this->mysqli_connection->multi_query($query);
+			else
+				$result = $this->mysqli_connection->query($query);
+			
+			return $result;
 		}
 	}
 	
@@ -148,12 +210,14 @@ if (!extension_loaded('pgsql'))
 		private $detail; //stores either static query, or array with the proper parameter order
 		
 		private $is_static = false;
+		
 		public function __construct($query_statement, $link)
 		{
 			np_p2m_query_sanitize($query_statement);
 			
-			$mysqli_query = np_p2m_stmt_conv($query_statement);
-			if ($mysqli_query === false)//for static prepared statements
+			$mysqli_query = preg_replace('/\$\d*/', '?', $query_statement);
+			
+			if ($mysqli_query === $query_statement)//for static prepared statements
 			{
 				$this->is_static = true;
 				$this->link = $link;
@@ -168,7 +232,7 @@ if (!extension_loaded('pgsql'))
 			}
 		}
 		
-		public function execute($params)
+		public function execute($params = NULL)
 		{
 			if ($this->is_static)
 				$output = $this->link->query($this->detail);
@@ -210,14 +274,6 @@ if (!extension_loaded('pgsql'))
 			$query = substr_replace($query, 'DELETE FROM ', 0, 17); 
 	}
 	
-	function np_p2m_stmt_conv($query)
-	{
-		$result = preg_replace('/\$\d*/', '?', $query);
-		if ($result === $query)
-			$result = false;
-		return $result;
-	}
-	
 	//taken from http://stackoverflow.com/questions/3681262/php5-3-mysqli-stmtbind-params-with-call-user-func-array-warnings
 	function np_p2m_refValues($arr)
 	{
@@ -236,7 +292,7 @@ if (!extension_loaded('pgsql'))
 		
 		$link = new np_p2m_link_resource($connection_string);
 
-		if ($link->is_error)
+		if ($link->is_error())
 			$link = false;
 		else
 			$np_p2m_last_conn = $link;
@@ -253,7 +309,7 @@ if (!extension_loaded('pgsql'))
 		else if (func_num_args() == 1)
 			$link = func_get_arg(0);
 		
-		return $link->mysqli_connection->close();
+		return $link->close();
 	}
 	
 	function pg_dbname()
@@ -265,7 +321,7 @@ if (!extension_loaded('pgsql'))
 		else if (func_num_args() == 1)
 			$link = func_get_arg(0);
 		
-		return $link->database;
+		return $link->get_info('dbname');
 	}
 	
 	function pg_host()
@@ -277,7 +333,19 @@ if (!extension_loaded('pgsql'))
 		else if (func_num_args() == 1)
 			$link = func_get_arg(0);
 		
-		return $link->hostname;
+		return $link->get_info('host');
+	}
+	
+	function pg_port()
+	{
+		global $np_p2m_last_conn;
+		
+		if (func_num_args() == 0)
+			$link = $np_p2m_last_conn;
+		else if (func_num_args() == 1)
+			$link = func_get_arg(0);
+		
+		return $link->get_info('port');
 	}
 	
 	function pg_delete()//TODO: allow options
@@ -366,18 +434,7 @@ if (!extension_loaded('pgsql'))
 		
 		np_p2m_query_sanitize($query);
 		
-		//clear comments and count queries
-		//might have problems if there are only two queries, and the second query does not end in a semicolon
-		//might also run into issues if the symbol that indicates the start of a comment block is within quotes.
-		$count = preg_match_all('/.*?;/s', preg_replace('/--.*/', '', preg_replace('/\/\*.*?\*\//s', '', $query)));
-		
-		//TODO: parse the individual statements and return query results on multiples.
-		if ($count > 1)
-			$result = $link->mysqli_connection->multi_query($query);
-		else
-			$result = $link->query($query);
-		
-		return $result;
+		return $link->query($query);
 	}
 	
 	function pg_query_params()
@@ -397,14 +454,13 @@ if (!extension_loaded('pgsql'))
 			$params = func_get_arg(2);
 		}
 		
-		$stmt = new np_p2m_converted_stmt($query, $link);
+		$stmt = $link->get_stmt($query);
 		
 		return $stmt->execute($params);
 	}
 	
 	function pg_prepare()
 	{
-		global $np_p2m_stmts;
 		global $np_p2m_last_conn;
 		
 		if (func_num_args() == 2)
@@ -421,16 +477,11 @@ if (!extension_loaded('pgsql'))
 			$query = func_get_arg(2);
 		}
 		
-		$thread = $link->mysqli_connection->thread_id;
-		if (!isset($np_p2m_stmts[$thread]))
-			$np_p2m_stmts[$thread] = array();
-		
-		$np_p2m_stmts[$thread][$name] = new np_p2m_converted_stmt($query, $link);
+		$link->prepare($name, $query);
 	}
 	
 	function pg_execute()
 	{
-		global $np_p2m_stmts;
 		global $np_p2m_last_conn;
 		
 		if (func_num_args() == 2)
@@ -447,9 +498,7 @@ if (!extension_loaded('pgsql'))
 			$params = func_get_arg(2);
 		}
 		
-		$thread = $link->mysqli_connection->thread_id;
-		
-		return $np_p2m_stmts[$thread][$name]->execute($params);
+		return $link->execute($name, $params);
 	}
 	
 	function pg_num_rows($data)
