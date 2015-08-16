@@ -1,6 +1,6 @@
 <?php
 /*
-Will not support:
+Known Issues:
 	pg_fetch_result, pg_fetch_row, pg_fetch_array, pg_fetch_assoc,
 		pg_fetch_object and pg_field_is_null must specify row number.
 		Otherwise the first row will always be called.
@@ -170,9 +170,10 @@ if (!extension_loaded('pgsql'))
 			$this->converted_stmts[$name] = new np_p2m_converted_stmt($query, $this->mysqli_connection);
 		}
 		
-		public function get_stmt($query)
+		public function query_params($query, $params)
 		{
-			return new np_p2m_converted_stmt($query, $this->mysqli_connection);
+			$stmt = new np_p2m_converted_stmt($query, $this->mysqli_connection);
+			return $stmt->execute($params);
 		}
 		
 		public function execute($name, $params)
@@ -454,9 +455,7 @@ if (!extension_loaded('pgsql'))
 			$params = func_get_arg(2);
 		}
 		
-		$stmt = $link->get_stmt($query);
-		
-		return $stmt->execute($params);
+		return $link->query_params($query, $params);
 	}
 	
 	function pg_prepare()

@@ -14,14 +14,14 @@ So far, only the following PostgreSQL functions are supported:
 * pg_dbname
 * pg_host
 * pg_port
-
+---
 * pg_delete
 * pg_insert
 * pg_query
 * pg_query_params
 * pg_prepare
 * pg_execute
-
+---
 * pg_num_rows
 * pg_fetch_result
 * pg_fetch_row
@@ -30,19 +30,19 @@ So far, only the following PostgreSQL functions are supported:
 * pg_fetch_all_columns
 * pg_fetch_all
 * pg_fetch_object
-
+---
 * pg_field_is_null
 * pg_field_name
 * pg_field_num
 * pg_field_size
 * pg_field_table
 * pg_field_type
-
+---
 Though more may be added as they are requested or required.
 
 There are also a few limitations I have yet to work around:
 ```
-Will not support:
+Known Issues:
 	pg_fetch_result, pg_fetch_row, pg_fetch_array, pg_fetch_assoc,
 		pg_fetch_object and pg_field_is_null must specify row number.
 		Otherwise the first row will always be called.
