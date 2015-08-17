@@ -19,6 +19,11 @@ So far, only the following PostgreSQL functions are supported:
 
 * pg_delete
 * pg_insert
+* pg_update
+* pg_select
+
+---
+
 * pg_query
 * pg_query_params
 * pg_prepare
@@ -27,6 +32,7 @@ So far, only the following PostgreSQL functions are supported:
 ---
 
 * pg_num_rows
+* pg_affected_rows
 * pg_fetch_result
 * pg_fetch_row
 * pg_fetch_array
@@ -51,10 +57,7 @@ Though more may be added as they are requested or required.
 There are also a few limitations I have yet to work around:
 ```
 Known Issues:
-	pg_fetch_result, pg_fetch_row, pg_fetch_array, pg_fetch_assoc,
-		pg_fetch_object and pg_field_is_null must specify row number.
-		Otherwise the first row will always be called.
-	pg_connect, pg_delete, and pg_insert won't allow custom options
+	pg_connect, pg_delete, pg_insert, pg_update, and pg_select won't allow custom options
 	pg_query might have problems detecting whether there are one
 		or more than one queries in a call.
 	pg_field_table cannot fetch OID
