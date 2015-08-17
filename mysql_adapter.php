@@ -49,7 +49,7 @@ Known Issues:
 */
 if (!extension_loaded('pgsql'))
 {
-	define("PGSQL_LIBPQ_VERSION", 'v2015-08-16');
+	define("PGSQL_LIBPQ_VERSION", 'v2015-08-17');
 	
 	echo "<!--\n";
 	echo "Postgre to MySQL Adapter (".PGSQL_LIBPQ_VERSION.") Loaded\n";
@@ -78,6 +78,21 @@ if (!extension_loaded('pgsql'))
 		private $port = NULL;
 		//public $options = NULL;
 		private $is_error = false;
+		
+		private static function refValues($arr)
+		{
+			$refs = array();
+			foreach ($arr as $key => $value)
+				$refs[$key] = &$arr[$key];
+			return $refs;
+		}
+		
+		private static function query_sanitize(&$query)
+		{
+			//mysql does not support the 'only' option when deleting.
+			if (strcasecmp(substr($query, 0, 17), 'DELETE FROM ONLY ') == 0)
+				$query = substr_replace($query, 'DELETE FROM ', 0, 17); 
+		}
 		
 		public function __construct($connection_string)
 		{
@@ -163,11 +178,15 @@ if (!extension_loaded('pgsql'))
 		
 		public function prepare($name, $query)
 		{
+			self::query_sanitize($query);
+			
 			$this->converted_stmts[$name] = new np_p2m_converted_stmt($query, $this->mysqli_connection);
 		}
 		
 		public function query_params($query, $params)
 		{
+			self::query_sanitize($query);
+			
 			$stmt = new np_p2m_converted_stmt($query, $this->mysqli_connection);
 			return $stmt->execute($params);
 		}
@@ -179,6 +198,8 @@ if (!extension_loaded('pgsql'))
 		
 		public function query($query)
 		{
+			self::query_sanitize($query);
+			
 			//clear comments and count queries
 			//might have problems if there are only two queries, and the second query does not end in a semicolon
 			//might also run into issues if the symbol that indicates the start of a comment block is within quotes.
@@ -191,6 +212,114 @@ if (!extension_loaded('pgsql'))
 				$result = $this->mysqli_connection->query($query);
 			
 			return new np_p2m_result_resource($result, $this->mysqli_connection->affected_rows);
+		}
+		
+		private function direct_execute($mysqli_query, $params)
+		{
+			$types = "";
+			foreach ($params as $value)
+			{
+				if (is_int($value))
+					$types .= 'i';
+				else if (is_float($value))
+					$types .= 'd';
+				else if (is_string($value))
+					$types .= 's';
+				else //something might've gone wrong
+					$types .= ' ';
+			}
+			
+			$stmt = $this->link->prepare($mysqli_query);
+			
+			call_user_func_array(array($stmt, 'bind_param'), array_merge(array($types), self::refValues($params)));
+			$stmt->execute();
+			return new np_p2m_result_resource($stmt->get_result(), $this->mysqli_connection->affected_rows);
+		}
+		
+		public function delete($table, $row_array, $options)
+		{
+			if (count($row_array) === 0)
+				return false;
+			else
+			{
+				$query = 'DELETE FROM '.$table.' WHERE ';
+				$params = array();
+				foreach ($row_array as $field => $value)
+				{
+					$query .= $field.' = ? AND ';
+					$params[] = $value;
+				}
+				
+				return $this->direct_execute(substr($query, 0, -5), $params);
+			}
+		}
+		
+		public function insert($table, $row_array, $options)
+		{
+			if (count($row_array) === 0)
+				return false;
+			else
+			{
+				$params = array();
+				$fields = '';
+				$values = '\'';
+				foreach ($row_array as $field => $value)
+				{
+					$fields .= $field.', ';
+					$values .= '?, ';
+					
+					$params[] = $value;
+				}
+				
+				$query = 'INSERT INTO '.$table.' ('.substr($fields, 0, -2).') VALUES ('.substr($values, 0, -2).')';
+				
+				return $this->direct_execute($query, $params);
+			}
+		}
+		
+		public function update($table, $new_data, $old_data, $options)
+		{
+			if (count($row_array) === 0)
+				return false;
+			else
+			{
+				$query = 'UPDATE '.$table.' SET ';
+				$params = array();
+				
+				foreach ($new_data as $field => $value)
+				{
+					$query .= $field.' = ?, ';
+					$params[] = $value;
+				}
+				
+				$query = substr($query, 0, -2).' WHERE ';
+				
+				foreach ($old_data as $field => $value)
+				{
+					$query .= $field.' = ? AND ';
+					$params[] = $value;
+				}
+				
+				return $this->direct_execute(substr($query, 0, -5), $params);
+			}
+		}
+		
+		public function select($table, $row_array, $options)
+		{
+			if (count($row_array) === 0)
+				return false;
+			else
+			{
+				$query = 'SELECT * FROM '.$table.' WHERE ';
+				$params = array();
+				foreach ($row_array as $field => $value)
+				{
+					$query .= $field.' = ? AND ';
+					$params[] = $value;
+				}
+				
+				return $this->direct_execute(substr($query, 0, -5), $params);
+			}
 		}
 	}
 	
@@ -240,7 +369,7 @@ if (!extension_loaded('pgsql'))
 				//records the parameter types for the execution of the statement
 				foreach ($this->detail as $index)
 				{
-					array_push($mysqli_params, $params[$index - 1]);
+					$mysqli_params[] = $params[$index - 1];
 					
 					if (is_int($params[$index - 1]))
 						$types .= 'i';
@@ -252,7 +381,7 @@ if (!extension_loaded('pgsql'))
 						$types .= ' ';
 				}
 				//sets parameters in mysqli statement object
-				call_user_func_array(array($this->link, 'bind_param'), array_merge(array($types), np_p2m_converted_stmt::refValues($mysqli_params)));
+				call_user_func_array(array($this->link, 'bind_param'), array_merge(array($types), self::refValues($mysqli_params)));
 				//runs prepared statement
 				$this->link->execute();
 				//fetches result
@@ -325,23 +454,29 @@ if (!extension_loaded('pgsql'))
 		
 		public function num_rows()
 		{
-			return $this->result->num_rows;
+			if ($this->is_proper_result)
+				return $this->result->num_rows;
+			else
+				return false;
 		}
 		
 		public function affected_rows()
 		{
 			if ($this->is_proper_result)
-				$return = $this->result->num_rows;
+				return $this->result->num_rows;
 			else
-				$return = $this->result;
-			
-			return $return;
+				return $this->result;
 		}
 		
 		public function fetch_array($mode)
 		{
-			$this->result->data_seek($this->row_pointer);
-			return $this->result->fetch_array($mode);
+			if ($this->is_proper_result)
+			{
+				$this->result->data_seek($this->row_pointer);
+				return $this->result->fetch_array($mode);
+			}
+			else
+				return false;
 		}
 		
 		public function fetch_all()
@@ -352,54 +487,71 @@ if (!extension_loaded('pgsql'))
 			for ($i = 0; $i < $count; $i++)
 				$return[$i] = $this->result->fetch_assoc();
 			return $return;*/
-			return $this->result->fetch_all(MYSQLI_ASSOC);
+			if ($this->is_proper_result)
+				return $this->result->fetch_all(MYSQLI_ASSOC);
+			else
+				return false;
 		}
 		
 		public function fetch_column($field_num)
 		{
-			$return = array();
-			$this->result->data_seek(0);
-			$count = $this->result->num_rows;
-			for ($i = 0; $i < $count; $i++)
-				$return[$i] = $this->result->fetch_row()[$field_num];
-			return $return;
+			if ($this->is_proper_result)
+			{
+				$return = array();
+				$this->result->data_seek(0);
+				$count = $this->result->num_rows;
+				for ($i = 0; $i < $count; $i++)
+					$return[$i] = $this->result->fetch_row()[$field_num];
+				return $return;
+			}
+			else
+				return false;
 		}
 		
 		public function fetch_object($class_name, $params)
 		{
-			$this->result->data_seek($this->row_pointer);
-			return $this->result->fetch_object($class_name, $params);
+			if ($this->is_proper_result)
+			{
+				$this->result->data_seek($this->row_pointer);
+				return $this->result->fetch_object($class_name, $params);
+			}
+			else
+				return false;
 		}
 		
 		public function get_col_num($col_name)
 		{
-			$all_cols = $this->result->fetch_fields();
-			$count = count($all_cols);
-			$return = -1;
-			for ($i = 0; $i < $count; $i++)
-				if ($all_cols[$i]->name === $col_name)
-					$return = $i;
-			return $return;
+			if ($this->is_proper_result)
+			{
+				$all_cols = $this->result->fetch_fields();
+				$count = count($all_cols);
+				$return = -1;
+				for ($i = 0; $i < $count; $i++)
+					if ($all_cols[$i]->name === $col_name)
+						$return = $i;
+				return $return;
+			}
+			else
+				return false;
 		}
 		
 		public function col_data($col_index)
 		{
-			/*if (!is_int($col_index))
-				$col_index = get_col_num($col_index);*/
-			$this->result->field_seek($col_index);
-			return $this->result->fetch_field();
+			if ($this->is_proper_result)
+			{
+				/*if (!is_int($col_index))
+					$col_index = get_col_num($col_index);*/
+				$this->result->field_seek($col_index);
+				return $this->result->fetch_field();
+			}
+			else
+				return false;
 		}
 	}
 	
 	/*****************
 	Internal functions
 	*****************/
-	function np_p2m_query_sanitize(&$query)
-	{
-		//mysql does not support the 'only' option when deleting.
-		if (strcasecmp(substr($query, 0, 17), 'DELETE FROM ONLY ') == 0)
-			$query = substr_replace($query, 'DELETE FROM ', 0, 17); 
-	}
 	
 	/************************
 	Adapted Postgre functions
@@ -470,19 +622,8 @@ if (!extension_loaded('pgsql'))
 	{						//should redo with stmts
 		
 		//Valid options: PGSQL_CONV_FORCE_NULL, PGSQL_DML_NO_CONV, PGSQL_DML_ESCAPE, PGSQL_DML_EXEC, PGSQL_DML_ASYNC or PGSQL_DML_STRING
+		return $link->delete($table, $row_array, $options);
 		
-		if (count($row_array) === 0)
-			$return = false;
-		else
-		{
-			$query = 'DELETE FROM '.$table.' WHERE ';
-			
-			foreach ($row_array as $field => $value)
-				$query .= $field.' = \''.$value.'\' AND ';
-			
-			$return = $link->query(substr($query, 0, -5));
-		}
-		return $return;
 	}
 	
 	function pg_insert($link, $table, $row_array, $options = PGSQL_DML_EXEC)//TODO: allow options
@@ -490,23 +631,7 @@ if (!extension_loaded('pgsql'))
 		
 		//Valid options: PGSQL_CONV_OPTS, PGSQL_DML_NO_CONV, PGSQL_DML_ESCAPE, PGSQL_DML_EXEC, PGSQL_DML_ASYNC or PGSQL_DML_STRING
 		
-		if (count($row_array) === 0)
-			$return = false;
-		else
-		{
-			$fields = '';
-			$values = '\'';
-			
-			foreach ($row_array as $field => $value)
-			{
-				$fields .= $field.', ';
-				$values .= $value.'\', \'';
-			}
-			$query = 'INSERT INTO '.$table.' ('.substr($fields, 0, -2).') VALUES ('.substr($values, 0, -3).')';
-			
-			$return = $link->query($query);
-		}
-		return $return;
+		return $link->insert($table, $row_array, $options);
 	}
 	
 	function pg_update($link, $table, $new_data, $old_data, $options = PGSQL_DML_EXEC)//TODO: allow options
@@ -514,23 +639,7 @@ if (!extension_loaded('pgsql'))
 		
 		//Valid options: PGSQL_CONV_FORCE_NULL, PGSQL_DML_NO_CONV, PGSQL_DML_ESCAPE, PGSQL_DML_EXEC, PGSQL_DML_ASYNC or PGSQL_DML_STRING
 		
-		if (count($new_data) === 0 || count($old_data) === 0)
-			$return = false;
-		else
-		{
-			$query = 'UPDATE '.$table.' SET ';
-			
-			foreach ($new_data as $field => $value)
-				$query .= $field.' = \''.$value.'\', ';
-			
-			$query = substr($query, 0, -2).' WHERE ';
-			
-			foreach ($old_data as $field => $value)
-				$query .= $field.' = '.$value.' AND ';
-			
-			$return = $link->query(substr($query, 0, -5));
-		}
-		return $return;
+		return $link->update($table, $new_data, $old_data, $options);
 	}
 	
 	function pg_select($link, $table, $row_array, $options = PGSQL_DML_EXEC)//TODO: allow options
@@ -538,18 +647,7 @@ if (!extension_loaded('pgsql'))
 		
 		//Valid options: PGSQL_CONV_FORCE_NULL, PGSQL_DML_NO_CONV, PGSQL_DML_ESCAPE, PGSQL_DML_EXEC, PGSQL_DML_ASYNC or PGSQL_DML_STRING
 		
-		if (count($row_array) === 0)
-			$return = false;
-		else
-		{
-			$query = 'SELECT * FROM '.$table.' WHERE ';
-			
-			foreach ($row_array as $field => $value)
-				$query .= $field.' = \''.$value.'\' AND ';
-			
-			$return = $link->query(substr($query, 0, -5));
-		}
-		return $return;
+		return $link->select($table, $row_array, $options);
 	}
 	
 	function pg_query()
@@ -566,8 +664,6 @@ if (!extension_loaded('pgsql'))
 			$link = func_get_arg(0);
 			$query = func_get_arg(1);
 		}
-		
-		np_p2m_query_sanitize($query);
 		
 		return $link->query($query);
 	}
@@ -589,8 +685,6 @@ if (!extension_loaded('pgsql'))
 			$params = func_get_arg(2);
 		}
 		
-		np_p2m_query_sanitize($query);
-		
 		return $link->query_params($query, $params);
 	}
 	
@@ -611,8 +705,6 @@ if (!extension_loaded('pgsql'))
 			$name = func_get_arg(1);
 			$query = func_get_arg(2);
 		}
-		
-		np_p2m_query_sanitize($query);
 		
 		$link->prepare($name, $query);
 	}
