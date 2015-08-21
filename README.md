@@ -11,9 +11,11 @@ This is especially helpful if you're migrating your site between servers.
 So far, only the following PostgreSQL functions are supported:
 * pg_connect
 * pg_close
+* pg_ping
 * pg_dbname
 * pg_host
 * pg_port
+* pg_options
 
 ---
 
@@ -43,12 +45,14 @@ So far, only the following PostgreSQL functions are supported:
 
 ---
 
+* pg_num_fields
 * pg_field_is_null
 * pg_field_name
 * pg_field_num
 * pg_field_size
 * pg_field_table
 * pg_field_type
+* pg_field_prtlen
 
 ---
 
@@ -58,6 +62,7 @@ There are also a few limitations I have yet to work around:
 ```
 Known Issues:
 	pg_connect, pg_delete, pg_insert, pg_update, and pg_select won't allow custom options
+	connection string will not support values with spaces in
 	pg_query might have problems detecting whether there are one
 		or more than one queries in a call.
 	pg_field_table cannot fetch OID

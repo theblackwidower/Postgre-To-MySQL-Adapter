@@ -2,6 +2,7 @@
 /*
 Known Issues:
 	pg_connect, pg_delete, pg_insert, pg_update, and pg_select won't allow custom options
+	connection string will not support values with spaces in
 	pg_query might have problems detecting whether there are one
 		or more than one queries in a call.
 	pg_field_table cannot fetch OID
@@ -10,9 +11,11 @@ Known Issues:
 	includes replacements for:
 		pg_connect
 		pg_close
+		pg_ping
 		pg_dbname
 		pg_host
 		pg_port
+		pg_options
 		
 		pg_delete
 		pg_insert
@@ -34,12 +37,14 @@ Known Issues:
 		pg_fetch_all
 		pg_fetch_object
 		
+		pg_num_fields
 		pg_field_is_null
 		pg_field_name
 		pg_field_num
 		pg_field_size
 		pg_field_table
 		pg_field_type
+		pg_field_prtlen
 		
 	Uses newly designed objects instead of connection and result resources.
 	
@@ -91,7 +96,7 @@ if (!extension_loaded('pgsql'))
 		private $hostname = NULL;
 		private $database = NULL;
 		private $port = NULL;
-		//public $options = NULL;
+		private $options = NULL;
 		private $is_error = false;
 		
 		private static function query_sanitize(&$query)
@@ -107,6 +112,7 @@ if (!extension_loaded('pgsql'))
 			$password = NULL;
 
 			$elements = explode(' ', $connection_string);
+			//need to support values with spaces in.
 			foreach($elements as $part)
 			{
 				$endPoint = strpos($part,'=');
@@ -132,8 +138,8 @@ if (!extension_loaded('pgsql'))
 						case 'port':
 							$this->port = $parameter;
 							break;
-						case 'options':
-							//$this->options = $parameter;
+						case 'options'://currently does no more than record connection options
+							$this->options = $parameter;
 							break;
 						default:
 							$this->is_error = true;
@@ -162,6 +168,11 @@ if (!extension_loaded('pgsql'))
 				return false;
 		}
 		
+		public function ping()
+		{
+			return $this->mysqli_connection->ping();
+		}
+		
 		public function is_error()
 		{
 			return $this->is_error;
@@ -179,6 +190,9 @@ if (!extension_loaded('pgsql'))
 					break;
 				case 'port':
 					$result = $this->port;
+					break;
+				case 'options':
+					$result = $this->options;
 					break;
 				default:
 					$result = null;
@@ -227,6 +241,10 @@ if (!extension_loaded('pgsql'))
 			return new np_p2m_result($result, $this->mysqli_connection->affected_rows);
 		}
 		
+		/************************************************
+		For pg_delete, pg_insert, pg_update and pg_select
+		************************************************/
+		
 		private function direct_execute($mysqli_query, $params, $return_array = false)
 		{
 			$types = "";
@@ -254,7 +272,6 @@ if (!extension_loaded('pgsql'))
 			}
 			else
 				return false;
-			//return new np_p2m_result($stmt->get_result(), $this->mysqli_connection->affected_rows);
 		}
 		
 		public function delete($table, $row_array, $options)
@@ -408,7 +425,6 @@ if (!extension_loaded('pgsql'))
 		private $is_proper_result;
 		private $result; // will hold either mysqli_result or int containing affected_rows
 		private $row_pointer = -1;
-		//private $col_pointer = -1;
 		
 		public function __construct($mysqli_result_object, $affected_rows)
 		{
@@ -444,30 +460,26 @@ if (!extension_loaded('pgsql'))
 				$this->row_pointer = 0;
 		}
 		
-		/*public function set_col($index)
+		private function transfer_row_pointer()
 		{
-			if ($this->result->field_count > $index)
-			{
-				$this->col_pointer = $index;
-				$return = true;
-			}
+			if ($this->row_pointer < 0)
+				$this->result->data_seek(0);
 			else
-				$return = false;
-				
-			return $return;
+				$this->result->data_seek($this->row_pointer);
 		}
-		
-		public function inc_col()
-		{
-			$this->col_pointer++;
-			if ($this->result->field_count == $this->col_pointer)
-				$this->col_pointer = 0;
-		}*/
 		
 		public function num_rows()
 		{
 			if ($this->is_proper_result)
 				return $this->result->num_rows;
+			else
+				return false;
+		}
+		
+		public function num_fields()
+		{
+			if ($this->is_proper_result)
+				return $this->result->field_count;
 			else
 				return false;
 		}
@@ -484,7 +496,7 @@ if (!extension_loaded('pgsql'))
 		{
 			if ($this->is_proper_result)
 			{
-				$this->result->data_seek($this->row_pointer);
+				$this->transfer_row_pointer();
 				return $this->result->fetch_array($mode);
 			}
 			else
@@ -524,7 +536,7 @@ if (!extension_loaded('pgsql'))
 		{
 			if ($this->is_proper_result)
 			{
-				$this->result->data_seek($this->row_pointer);
+				$this->transfer_row_pointer();
 				return $this->result->fetch_object($class_name, $params);
 			}
 			else
@@ -590,6 +602,18 @@ if (!extension_loaded('pgsql'))
 		return $link->close();
 	}
 	
+	function pg_ping()
+	{
+		global $np_p2m_last_conn;
+		
+		if (func_num_args() == 0)
+			$link = $np_p2m_last_conn;
+		else if (func_num_args() == 1)
+			$link = func_get_arg(0);
+		
+		return $link->ping();
+	}
+	
 	function pg_dbname()
 	{
 		global $np_p2m_last_conn;
@@ -624,6 +648,18 @@ if (!extension_loaded('pgsql'))
 			$link = func_get_arg(0);
 		
 		return $link->get_info('port');
+	}
+	
+	function pg_options()
+	{
+		global $np_p2m_last_conn;
+		
+		if (func_num_args() == 0)
+			$link = $np_p2m_last_conn;
+		else if (func_num_args() == 1)
+			$link = func_get_arg(0);
+		
+		return $link->get_info('options');
 	}
 	
 	function pg_delete($link, $table, $row_array, $options = PGSQL_DML_EXEC)//TODO: allow options
@@ -865,12 +901,17 @@ if (!extension_loaded('pgsql'))
 		return $data->fetch_object($class_name, $params);
 	}
 	
+	function pg_num_fields($data)
+	{
+		return $data->num_fields();
+	}
+	
 	function pg_field_is_null()
 	{
 		if (func_num_args() == 2)
 		{
 			$data = func_get_arg(0);
-			$data->inc_row();
+			//current row is fetched by default
 			$field = func_get_arg(1);
 		}
 		else if (func_num_args() == 3)
@@ -912,5 +953,23 @@ if (!extension_loaded('pgsql'))
 	function pg_field_type($data, $col_index)
 	{
 		return $data->col_data($col_index)->type;
+	}
+	
+	function pg_field_prtlen()
+	{
+		if (func_num_args() == 2)
+		{
+			$data = func_get_arg(0);
+			//current row is fetched by default
+			$field = func_get_arg(1);
+		}
+		else if (func_num_args() == 3)
+		{
+			$data = func_get_arg(0);
+			$data->set_row(func_get_arg(1));
+			$field = func_get_arg(2);
+		}
+		
+		return strlen($data->fetch_array(MYSQLI_BOTH)[$field]);
 	}
 }
