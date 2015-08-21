@@ -65,7 +65,22 @@ if (!extension_loaded('pgsql'))
 	//will hold the last created connection
 	$np_p2m_last_conn = null;
 	
-	class np_p2m_link_resource
+	/*****************
+	Internal functions
+	*****************/
+	//taken from http://stackoverflow.com/questions/3681262/php5-3-mysqli-stmtbind-params-with-call-user-func-array-warnings
+	function np_p2m_refValues($arr)
+	{
+		$refs = array();
+		foreach ($arr as $key => $value)
+			$refs[$key] = &$arr[$key];
+		return $refs;
+	}
+	
+	/***************
+	Emulated classes
+	***************/
+	class np_p2m_link
 	{
 		private $mysqli_connection;
 		//in Postgre, prepared statements are stored server side.
@@ -78,14 +93,6 @@ if (!extension_loaded('pgsql'))
 		private $port = NULL;
 		//public $options = NULL;
 		private $is_error = false;
-		
-		private static function refValues($arr)
-		{
-			$refs = array();
-			foreach ($arr as $key => $value)
-				$refs[$key] = &$arr[$key];
-			return $refs;
-		}
 		
 		private static function query_sanitize(&$query)
 		{
@@ -143,12 +150,16 @@ if (!extension_loaded('pgsql'))
 		
 		public function close()
 		{
-			$return = $this->mysqli_connection->close();
-			$this->converted_stmts = array();
-			$this->hostname = NULL;
-			$this->database = NULL;
-			$this->port = NULL;
-			return $return;
+			if ($this->mysqli_connection->close())
+			{
+				$this->converted_stmts = array();
+				$this->hostname = NULL;
+				$this->database = NULL;
+				$this->port = NULL;
+				return true;
+			}
+			else
+				return false;
 		}
 		
 		public function is_error()
@@ -170,8 +181,10 @@ if (!extension_loaded('pgsql'))
 					$result = $this->port;
 					break;
 				default:
-					$result = '';
+					$result = null;
 			}
+			if ($result == null)
+				$result = false;
 			
 			return $result;
 		}
@@ -180,14 +193,14 @@ if (!extension_loaded('pgsql'))
 		{
 			self::query_sanitize($query);
 			
-			$this->converted_stmts[$name] = new np_p2m_converted_stmt($query, $this->mysqli_connection);
+			$this->converted_stmts[$name] = new np_p2m_stmt($query, $this->mysqli_connection);
 		}
 		
 		public function query_params($query, $params)
 		{
 			self::query_sanitize($query);
 			
-			$stmt = new np_p2m_converted_stmt($query, $this->mysqli_connection);
+			$stmt = new np_p2m_stmt($query, $this->mysqli_connection);
 			return $stmt->execute($params);
 		}
 		
@@ -211,10 +224,10 @@ if (!extension_loaded('pgsql'))
 			else
 				$result = $this->mysqli_connection->query($query);
 			
-			return new np_p2m_result_resource($result, $this->mysqli_connection->affected_rows);
+			return new np_p2m_result($result, $this->mysqli_connection->affected_rows);
 		}
 		
-		private function direct_execute($mysqli_query, $params)
+		private function direct_execute($mysqli_query, $params, $return_array = false)
 		{
 			$types = "";
 			foreach ($params as $value)
@@ -231,9 +244,17 @@ if (!extension_loaded('pgsql'))
 			
 			$stmt = $this->link->prepare($mysqli_query);
 			
-			call_user_func_array(array($stmt, 'bind_param'), array_merge(array($types), self::refValues($params)));
-			$stmt->execute();
-			return new np_p2m_result_resource($stmt->get_result(), $this->mysqli_connection->affected_rows);
+			call_user_func_array(array($stmt, 'bind_param'), array_merge(array($types), np_p2m_refValues($params)));
+			if ($stmt->execute())
+			{
+				if ($return_array)
+					return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+				else
+					return true;
+			}
+			else
+				return false;
+			//return new np_p2m_result($stmt->get_result(), $this->mysqli_connection->affected_rows);
 		}
 		
 		public function delete($table, $row_array, $options)
@@ -318,12 +339,12 @@ if (!extension_loaded('pgsql'))
 					$params[] = $value;
 				}
 				
-				return $this->direct_execute(substr($query, 0, -5), $params);
+				return $this->direct_execute(substr($query, 0, -5), $params, true);
 			}
 		}
 	}
 	
-	class np_p2m_converted_stmt
+	class np_p2m_stmt
 	{
 		private $link; //stores either mysqli object, or mysqli_stmt object
 		private $detail; //stores either static query, or array with the proper parameter order
@@ -349,15 +370,6 @@ if (!extension_loaded('pgsql'))
 			}
 		}
 		
-		//taken from http://stackoverflow.com/questions/3681262/php5-3-mysqli-stmtbind-params-with-call-user-func-array-warnings
-		private static function refValues($arr)
-		{
-			$refs = array();
-			foreach ($arr as $key => $value)
-				$refs[$key] = &$arr[$key];
-			return $refs;
-		}
-		
 		public function execute($params = NULL)
 		{
 			if ($this->is_static)
@@ -381,17 +393,17 @@ if (!extension_loaded('pgsql'))
 						$types .= ' ';
 				}
 				//sets parameters in mysqli statement object
-				call_user_func_array(array($this->link, 'bind_param'), array_merge(array($types), self::refValues($mysqli_params)));
+				call_user_func_array(array($this->link, 'bind_param'), array_merge(array($types), np_p2m_refValues($mysqli_params)));
 				//runs prepared statement
 				$this->link->execute();
 				//fetches result
 				$output = $this->link->get_result();
 			}
-			return new np_p2m_result_resource($output, $this->link->affected_rows);
+			return new np_p2m_result($output, $this->link->affected_rows);
 		}
 	}
 	
-	class np_p2m_result_resource
+	class np_p2m_result
 	{
 		private $is_proper_result;
 		private $result; // will hold either mysqli_result or int containing affected_rows
@@ -549,18 +561,14 @@ if (!extension_loaded('pgsql'))
 		}
 	}
 	
-	/*****************
-	Internal functions
-	*****************/
-	
 	/************************
 	Adapted Postgre functions
 	************************/
 	function pg_connect($connection_string) //Still needs work //no connection type
-	{
+	{										//PGSQL_CONNECT_FORCE_NEW, PGSQL_CONNECT_ASYNC
 		global $np_p2m_last_conn;
 		
-		$link = new np_p2m_link_resource($connection_string);
+		$link = new np_p2m_link($connection_string);
 
 		if ($link->is_error())
 			$link = false;
@@ -619,34 +627,26 @@ if (!extension_loaded('pgsql'))
 	}
 	
 	function pg_delete($link, $table, $row_array, $options = PGSQL_DML_EXEC)//TODO: allow options
-	{						//should redo with stmts
-		
+	{
 		//Valid options: PGSQL_CONV_FORCE_NULL, PGSQL_DML_NO_CONV, PGSQL_DML_ESCAPE, PGSQL_DML_EXEC, PGSQL_DML_ASYNC or PGSQL_DML_STRING
 		return $link->delete($table, $row_array, $options);
-		
 	}
 	
 	function pg_insert($link, $table, $row_array, $options = PGSQL_DML_EXEC)//TODO: allow options
-	{						//should redo with stmts
-		
+	{
 		//Valid options: PGSQL_CONV_OPTS, PGSQL_DML_NO_CONV, PGSQL_DML_ESCAPE, PGSQL_DML_EXEC, PGSQL_DML_ASYNC or PGSQL_DML_STRING
-		
 		return $link->insert($table, $row_array, $options);
 	}
 	
 	function pg_update($link, $table, $new_data, $old_data, $options = PGSQL_DML_EXEC)//TODO: allow options
-	{						//should redo with stmts
-		
+	{
 		//Valid options: PGSQL_CONV_FORCE_NULL, PGSQL_DML_NO_CONV, PGSQL_DML_ESCAPE, PGSQL_DML_EXEC, PGSQL_DML_ASYNC or PGSQL_DML_STRING
-		
 		return $link->update($table, $new_data, $old_data, $options);
 	}
 	
 	function pg_select($link, $table, $row_array, $options = PGSQL_DML_EXEC)//TODO: allow options
-	{						//should redo with stmts
-		
+	{
 		//Valid options: PGSQL_CONV_FORCE_NULL, PGSQL_DML_NO_CONV, PGSQL_DML_ESCAPE, PGSQL_DML_EXEC, PGSQL_DML_ASYNC or PGSQL_DML_STRING
-		
 		return $link->select($table, $row_array, $options);
 	}
 	
