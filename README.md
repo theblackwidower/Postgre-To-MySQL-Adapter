@@ -13,6 +13,9 @@ So far, only the following PostgreSQL functions are supported:
 * pg_close
 * pg_ping
 * pg_last_error
+
+---
+
 * pg_dbname
 * pg_host
 * pg_port
@@ -31,6 +34,11 @@ So far, only the following PostgreSQL functions are supported:
 * pg_query_params
 * pg_prepare
 * pg_execute
+
+---
+		
+* pg_escape_string
+* pg_escape_literal
 
 ---
 

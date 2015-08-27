@@ -13,6 +13,7 @@ Known Issues:
 		pg_close
 		pg_ping
 		pg_last_error
+		
 		pg_dbname
 		pg_host
 		pg_port
@@ -27,6 +28,9 @@ Known Issues:
 		pg_query_params
 		pg_prepare
 		pg_execute
+		
+		pg_escape_string
+		pg_escape_literal
 		
 		pg_num_rows
 		pg_affected_rows
@@ -92,7 +96,7 @@ if (!extension_loaded('pgsql'))
 		//in Postgre, prepared statements are stored server side.
 		//in lieu of that, this array will hold mysqli_stmt objects,
 		//as well as query strings for static prepared statements (those that take no parameters).
-		private $converted_stmts = array();
+		private $stored_stmts = array();
 		//prepares initial holder variables in advance
 		private $hostname = NULL;
 		private $database = NULL;
@@ -159,7 +163,7 @@ if (!extension_loaded('pgsql'))
 		{
 			if ($this->mysqli_connection->close())
 			{
-				$this->converted_stmts = array();
+				$this->stored_stmts = array();
 				$this->hostname = NULL;
 				$this->database = NULL;
 				$this->port = NULL;
@@ -177,6 +181,11 @@ if (!extension_loaded('pgsql'))
 		public function last_error()
 		{
 			return $this->mysqli_connection->error;
+		}
+		
+		public function escape_string($string)
+		{
+			return $this->mysqli_connection->real_escape_string($string);
 		}
 		
 		public function is_error()
@@ -213,7 +222,7 @@ if (!extension_loaded('pgsql'))
 		{
 			self::query_sanitize($query);
 			
-			$this->converted_stmts[$name] = new np_p2m_stmt($query, $this->mysqli_connection);
+			$this->stored_stmts[$name] = new np_p2m_stmt($query, $this->mysqli_connection);
 		}
 		
 		public function query_params($query, $params)
@@ -226,7 +235,7 @@ if (!extension_loaded('pgsql'))
 		
 		public function execute($name, $params)
 		{
-			return $this->converted_stmts[$name]->execute($params);
+			return $this->stored_stmts[$name]->execute($params);
 		}
 		
 		public function query($query)
@@ -782,6 +791,42 @@ if (!extension_loaded('pgsql'))
 		}
 		
 		return $link->execute($name, $params);
+	}
+	
+	function pg_escape_string()
+	{
+		global $np_p2m_last_conn;
+		
+		if (func_num_args() == 1)
+		{
+			$link = $np_p2m_last_conn;
+			$string = func_get_arg(0);
+		}
+		else if (func_num_args() == 2)
+		{
+			$link = func_get_arg(0);
+			$string = func_get_arg(1);
+		}
+		
+		return $link->escape_string($string);
+	}
+	
+	function pg_escape_literal()
+	{
+		global $np_p2m_last_conn;
+		
+		if (func_num_args() == 1)
+		{
+			$link = $np_p2m_last_conn;
+			$string = func_get_arg(0);
+		}
+		else if (func_num_args() == 2)
+		{
+			$link = func_get_arg(0);
+			$string = func_get_arg(1);
+		}
+		
+		return "'".$link->escape_string($string)."'";
 	}
 	
 	function pg_num_rows($data)
