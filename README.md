@@ -12,6 +12,7 @@ So far, only the following PostgreSQL functions are supported:
 * pg_connect
 * pg_close
 * pg_ping
+* pg_last_error
 * pg_dbname
 * pg_host
 * pg_port

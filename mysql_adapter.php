@@ -12,6 +12,7 @@ Known Issues:
 		pg_connect
 		pg_close
 		pg_ping
+		pg_last_error
 		pg_dbname
 		pg_host
 		pg_port
@@ -149,7 +150,7 @@ if (!extension_loaded('pgsql'))
 			if (!$this->is_error)
 			{
 				$this->mysqli_connection = new mysqli($this->hostname, $username, $password, $this->database, $db_port);
-				if (!is_null($this->mysqli_connection->connect_error))
+				if ($this->mysqli_connection->connect_errno !== 0)
 					$this->is_error = true;
 			}
 		}
@@ -171,6 +172,11 @@ if (!extension_loaded('pgsql'))
 		public function ping()
 		{
 			return $this->mysqli_connection->ping();
+		}
+		
+		public function last_error()
+		{
+			return $this->mysqli_connection->error;
 		}
 		
 		public function is_error()
@@ -612,6 +618,18 @@ if (!extension_loaded('pgsql'))
 			$link = func_get_arg(0);
 		
 		return $link->ping();
+	}
+	
+	function pg_last_error()
+	{
+		global $np_p2m_last_conn;
+		
+		if (func_num_args() == 0)
+			$link = $np_p2m_last_conn;
+		else if (func_num_args() == 1)
+			$link = func_get_arg(0);
+		
+		return $link->last_error();
 	}
 	
 	function pg_dbname()
