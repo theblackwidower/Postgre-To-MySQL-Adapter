@@ -57,9 +57,9 @@ Known Issues:
 	http://php.net/manual/en/book.pgsql.php
 	http://php.net/manual/en/book.mysqli.php
 */
-if (!extension_loaded('pgsql'))
+if (!extension_loaded('pgsql') && extension_loaded('mysqli'))
 {
-	define("PGSQL_LIBPQ_VERSION", 'v2015-08-17');
+	define("PGSQL_LIBPQ_VERSION", 'v2015-09-01');
 	
 	echo "<!--\n";
 	echo "Postgre to MySQL Adapter (".PGSQL_LIBPQ_VERSION.") Loaded\n";
@@ -71,10 +71,7 @@ if (!extension_loaded('pgsql'))
 	
 	//constants from pgsql driver
 	define("PGSQL_ASSOC", 1); define("PGSQL_NUM", 2); define("PGSQL_BOTH", 3); define("PGSQL_CONNECT_FORCE_NEW", 2); define("PGSQL_CONNECT_ASYNC", 4); define("PGSQL_CONNECTION_BAD", 1); define("PGSQL_CONNECTION_OK", 0); define("PGSQL_SEEK_SET", 0); define("PGSQL_SEEK_CUR", 1); define("PGSQL_SEEK_END", 2); define("PGSQL_EMPTY_QUERY", 0); define("PGSQL_COMMAND_OK", 1); define("PGSQL_TUPLES_OK", 2); define("PGSQL_COPY_OUT", 3); define("PGSQL_COPY_IN", 4); define("PGSQL_BAD_RESPONSE", 5); define("PGSQL_NONFATAL_ERROR", 6); define("PGSQL_FATAL_ERROR", 7); define("PGSQL_TRANSACTION_IDLE", 0); define("PGSQL_TRANSACTION_ACTIVE", 1); define("PGSQL_TRANSACTION_INTRANS", 2); define("PGSQL_TRANSACTION_INERROR", 3); define("PGSQL_TRANSACTION_UNKNOWN", 4); define("PGSQL_DIAG_SEVERITY", 83); define("PGSQL_DIAG_SQLSTATE", 67); define("PGSQL_DIAG_MESSAGE_PRIMARY", 77); define("PGSQL_DIAG_MESSAGE_DETAIL", 68); define("PGSQL_DIAG_MESSAGE_HINT", 72); define("PGSQL_DIAG_STATEMENT_POSITION", 80); define("PGSQL_DIAG_INTERNAL_POSITION", 112); define("PGSQL_DIAG_INTERNAL_QUERY", 113); define("PGSQL_DIAG_CONTEXT", 87); define("PGSQL_DIAG_SOURCE_FILE", 70); define("PGSQL_DIAG_SOURCE_LINE", 76); define("PGSQL_DIAG_SOURCE_FUNCTION", 82); define("PGSQL_ERRORS_TERSE", 0); define("PGSQL_ERRORS_DEFAULT", 1); define("PGSQL_ERRORS_VERBOSE", 2); define("PGSQL_STATUS_LONG", 1); define("PGSQL_STATUS_STRING", 2); define("PGSQL_CONV_IGNORE_DEFAULT", 2); define("PGSQL_CONV_FORCE_NULL", 4); define("PGSQL_CONV_IGNORE_NOT_NULL", 8); define("PGSQL_DML_NO_CONV", 256); define("PGSQL_DML_EXEC", 512); define("PGSQL_DML_ASYNC", 1024); define("PGSQL_DML_STRING", 2048); define("PGSQL_DML_ESCAPE", 4096); define("PGSQL_POLLING_FAILED", 0); define("PGSQL_POLLING_READING", 1); define("PGSQL_POLLING_WRITING", 2); define("PGSQL_POLLING_OK", 3); define("PGSQL_POLLING_ACTIVE", 4);
-	
-	//will hold the last created connection
-	$np_p2m_last_conn = null;
-	
+		
 	/*****************
 	Internal functions
 	*****************/
@@ -92,6 +89,14 @@ if (!extension_loaded('pgsql'))
 	***************/
 	class np_p2m_link
 	{
+		//will hold the last created connection
+		private static $last_conn = NULL;
+		
+		public static function last_connection()
+		{
+			return self::$last_conn;
+		}
+		
 		private $mysqli_connection;
 		//in Postgre, prepared statements are stored server side.
 		//in lieu of that, this array will hold mysqli_stmt objects,
@@ -156,6 +161,8 @@ if (!extension_loaded('pgsql'))
 				$this->mysqli_connection = new mysqli($this->hostname, $username, $password, $this->database, $db_port);
 				if ($this->mysqli_connection->connect_errno !== 0)
 					$this->is_error = true;
+				else
+					self::$last_conn = $this;
 			}
 		}
 		
@@ -593,24 +600,18 @@ if (!extension_loaded('pgsql'))
 	************************/
 	function pg_connect($connection_string) //Still needs work //no connection type
 	{										//PGSQL_CONNECT_FORCE_NEW, PGSQL_CONNECT_ASYNC
-		global $np_p2m_last_conn;
-		
 		$link = new np_p2m_link($connection_string);
 
 		if ($link->is_error())
 			$link = false;
-		else
-			$np_p2m_last_conn = $link;
 		
 		return $link;
 	}
 	
 	function pg_close()
 	{
-		global $np_p2m_last_conn;
-		
 		if (func_num_args() == 0)
-			$link = $np_p2m_last_conn;
+			$link = np_p2m_link::last_connection();
 		else if (func_num_args() == 1)
 			$link = func_get_arg(0);
 		
@@ -619,10 +620,8 @@ if (!extension_loaded('pgsql'))
 	
 	function pg_ping()
 	{
-		global $np_p2m_last_conn;
-		
 		if (func_num_args() == 0)
-			$link = $np_p2m_last_conn;
+			$link = np_p2m_link::last_connection();
 		else if (func_num_args() == 1)
 			$link = func_get_arg(0);
 		
@@ -631,10 +630,8 @@ if (!extension_loaded('pgsql'))
 	
 	function pg_last_error()
 	{
-		global $np_p2m_last_conn;
-		
 		if (func_num_args() == 0)
-			$link = $np_p2m_last_conn;
+			$link = np_p2m_link::last_connection();
 		else if (func_num_args() == 1)
 			$link = func_get_arg(0);
 		
@@ -643,10 +640,8 @@ if (!extension_loaded('pgsql'))
 	
 	function pg_dbname()
 	{
-		global $np_p2m_last_conn;
-		
 		if (func_num_args() == 0)
-			$link = $np_p2m_last_conn;
+			$link = np_p2m_link::last_connection();
 		else if (func_num_args() == 1)
 			$link = func_get_arg(0);
 		
@@ -655,10 +650,8 @@ if (!extension_loaded('pgsql'))
 	
 	function pg_host()
 	{
-		global $np_p2m_last_conn;
-		
 		if (func_num_args() == 0)
-			$link = $np_p2m_last_conn;
+			$link = np_p2m_link::last_connection();
 		else if (func_num_args() == 1)
 			$link = func_get_arg(0);
 		
@@ -667,10 +660,8 @@ if (!extension_loaded('pgsql'))
 	
 	function pg_port()
 	{
-		global $np_p2m_last_conn;
-		
 		if (func_num_args() == 0)
-			$link = $np_p2m_last_conn;
+			$link = np_p2m_link::last_connection();
 		else if (func_num_args() == 1)
 			$link = func_get_arg(0);
 		
@@ -679,10 +670,8 @@ if (!extension_loaded('pgsql'))
 	
 	function pg_options()
 	{
-		global $np_p2m_last_conn;
-		
 		if (func_num_args() == 0)
-			$link = $np_p2m_last_conn;
+			$link = np_p2m_link::last_connection();
 		else if (func_num_args() == 1)
 			$link = func_get_arg(0);
 		
@@ -715,11 +704,9 @@ if (!extension_loaded('pgsql'))
 	
 	function pg_query()
 	{
-		global $np_p2m_last_conn;
-		
 		if (func_num_args() == 1)
 		{
-			$link = $np_p2m_last_conn;
+			$link = np_p2m_link::last_connection();
 			$query = func_get_arg(0);
 		}
 		else if (func_num_args() == 2)
@@ -733,11 +720,9 @@ if (!extension_loaded('pgsql'))
 	
 	function pg_query_params()
 	{
-		global $np_p2m_last_conn;
-		
 		if (func_num_args() == 2)
 		{
-			$link = $np_p2m_last_conn;
+			$link = np_p2m_link::last_connection();
 			$query = func_get_arg(0);
 			$params = func_get_arg(1);
 		}
@@ -753,12 +738,10 @@ if (!extension_loaded('pgsql'))
 	
 	function pg_prepare()
 	{
-		global $np_p2m_last_conn;
-		
 		if (func_num_args() == 2)
 		{
 			//defaults to last created connection
-			$link = $np_p2m_last_conn;
+			$link = np_p2m_link::last_connection();
 			$name = func_get_arg(0);
 			$query = func_get_arg(1);
 		}
@@ -774,12 +757,10 @@ if (!extension_loaded('pgsql'))
 	
 	function pg_execute()
 	{
-		global $np_p2m_last_conn;
-		
 		if (func_num_args() == 2)
 		{
 			//defaults to last created connection
-			$link = $np_p2m_last_conn;
+			$link = np_p2m_link::last_connection();
 			$name = func_get_arg(0);
 			$params = func_get_arg(1);
 		}
@@ -795,11 +776,9 @@ if (!extension_loaded('pgsql'))
 	
 	function pg_escape_string()
 	{
-		global $np_p2m_last_conn;
-		
 		if (func_num_args() == 1)
 		{
-			$link = $np_p2m_last_conn;
+			$link = np_p2m_link::last_connection();
 			$string = func_get_arg(0);
 		}
 		else if (func_num_args() == 2)
@@ -813,11 +792,9 @@ if (!extension_loaded('pgsql'))
 	
 	function pg_escape_literal()
 	{
-		global $np_p2m_last_conn;
-		
 		if (func_num_args() == 1)
 		{
-			$link = $np_p2m_last_conn;
+			$link = np_p2m_link::last_connection();
 			$string = func_get_arg(0);
 		}
 		else if (func_num_args() == 2)

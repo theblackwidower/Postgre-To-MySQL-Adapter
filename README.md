@@ -36,7 +36,7 @@ So far, only the following PostgreSQL functions are supported:
 * pg_execute
 
 ---
-		
+
 * pg_escape_string
 * pg_escape_literal
 
