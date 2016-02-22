@@ -2,7 +2,7 @@
 
 Did you build a website anticipating the use of a PostgreSQL database, and end up on a server using MySQL?
 
-No? Well I did. So I created this. 
+No? Well I did. So I created this.
 
 A simple PHP file you can include in your site header that detects if a server does not support PostgreSQL, and immediately generates several replacement functions that allows your Postgre-based site to interface with a MySQL database instead.
 
@@ -70,8 +70,8 @@ Though more may be added as they are requested or required.
 There are also a few limitations I have yet to work around:
 ```
 Known Issues:
-	pg_connect, pg_delete, pg_insert, pg_update, and pg_select won't allow custom options
-	connection string will not support values with spaces in
+	pg_connect, pg_delete, pg_insert, pg_update,
+		and pg_select won't allow custom options
 	pg_query might have problems detecting whether there are one
 		or more than one queries in a call.
 	pg_field_table cannot fetch OID
@@ -83,7 +83,7 @@ Not all features have been fully tested, due to the limitations of my set-up, la
 Also, this adapter is intended to (eventually) fully convert all PostgreSQL code for use on a MySQL server, and fully replicate or simulate all features of Postgre. If you encounter any issues, or have any requests for me to place on the front burner, don't hesitate to file a report.
 
 ###Other Known Issues
-A colleague of mine has reported problems with prepared statements. I have built a workaround that bypasses prepared statements entirely, but have chosen not to upload it for three reasons. First, it allows for SQL injection that prepared statements are intended to foil, defeating the purpose of prepared statements and creating a massive security hole. Second, I'm certain there's a better way, but I haven't had the chance to properly diagnose the problem yet. Third, the file that contains the fix is old and hasn't been updated with the improvements from the original. 
+A colleague of mine has reported problems with prepared statements. I have built a workaround that bypasses prepared statements entirely, but have chosen not to upload it for three reasons. First, it allows for SQL injection that prepared statements are intended to foil, defeating the purpose of prepared statements and creating a massive security hole. Second, I'm certain there's a better way, but I haven't had the chance to properly diagnose the problem yet. Third, the file that contains the fix is old and hasn't been updated with the improvements from the original.
 
 If any further reports of this issue crop up, and we are unable to find a more workable fix, I will upload my old kludgy workaround.
 
