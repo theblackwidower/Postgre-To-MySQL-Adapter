@@ -139,73 +139,70 @@ if (!extension_loaded('pgsql') && extension_loaded('mysqli'))
 		private static function parse_conn_string($string)
 		{
 			$return = Array();
-			$param = "";
-			$value = "";
 			$length = strlen($string);
 
-			$is_value = false;
-			$is_quote = false;
-
-			for($i = 0; $i < $length; $i++)
+			for($i = 0; $i < $length;
+				$return[] = Array("param" => $param, "value" => $value), $i++)
 			{
-				if ($is_value)
+				$param = "";
+				$value = "";
+				//looping to parse parameter
+				for(;$i < $length; $i++)
 				{
-					if ($is_quote)
+					if ($string[$i] == "=")
 					{
-						if ($string[$i] == "'")
-							$is_quote = false;
-						else if ($string[$i] == "\\")
-						{
+						while ($i < $length && $string[$i + 1] == " ")
 							$i++;
-							$value .= $string[$i];
-						}
-						else
-							$value .= $string[$i];
+						break;
 					}
-					else if ($string[$i] == "'")
-						$is_quote = true;
 					else if ($string[$i] == " ")
 					{
-						while ($string[$i + 1] == " ")
+						while ($i < $length && $string[$i + 1] == " ")
 							$i++;
-						$is_value = false;
-
-						$return[] = Array("param" => $param, "value" => $value);
-						$param = "";
-						$value = "";
+						if ($string[$i + 1] == "=")
+						{
+							$i++;
+							while ($i < $length && $string[$i + 1] == " ")
+								$i++;
+							break;
+						}
+						else
+						{
+							//restart first loop
+							continue 2;
+						}
+					}
+					else
+						$param .= $string[$i];
+				}
+				//looping to parse value
+				for($i++; $i < $length; $i++)
+				{
+					if ($string[$i] == "'")
+					{
+						for($i++; $i < $length; $i++)
+						{
+							if ($string[$i] == "'")
+								break;
+							else if ($string[$i] == "\\")
+							{
+								$i++;
+								$value .= $string[$i];
+							}
+							else
+								$value .= $string[$i];
+						}
+					}
+					else if ($string[$i] == " ")
+					{
+						while ($i < $length && $string[$i + 1] == " ")
+							$i++;
+						break;
 					}
 					else
 						$value .= $string[$i];
 				}
-				else if ($string[$i] == "=")
-				{
-					$is_value = true;
-					while ($string[$i + 1] == " ")
-						$i++;
-				}
-				else if ($string[$i] == " ")
-				{
-					while ($string[$i + 1] == " ")
-						$i++;
-					if ($string[$i + 1] == "=")
-					{
-						$i++;
-						$is_value = true;
-						while ($string[$i + 1] == " ")
-							$i++;
-					}
-					else
-					{
-						$return[] = Array("param" => $param, "value" => $value);
-						$param = "";
-						$value = "";
-					}
-				}
-				else
-					$param .= $string[$i];
 			}
-			if (strlen($param.$value) > 0)
-				$return[] = Array("param" => $param, "value" => $value);
 			return $return;
 		}
 
