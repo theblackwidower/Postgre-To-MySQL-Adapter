@@ -152,9 +152,9 @@ if (!extension_loaded('pgsql') && extension_loaded('mysqli'))
 				{
 					if ($is_quote)
 					{
-						if ($string[$i] == '\'')
+						if ($string[$i] == "'")
 							$is_quote = false;
-						else if ($string[$i] == '\\')
+						else if ($string[$i] == "\\")
 						{
 							$i++;
 							$value .= $string[$i];
@@ -162,10 +162,12 @@ if (!extension_loaded('pgsql') && extension_loaded('mysqli'))
 						else
 							$value .= $string[$i];
 					}
-					else if ($string[$i] == '\'')
+					else if ($string[$i] == "'")
 						$is_quote = true;
-					else if ($string[$i] == ' ')
+					else if ($string[$i] == " ")
 					{
+						while ($string[$i + 1] == " ")
+							$i++;
 						$is_value = false;
 
 						$return[] = Array("param" => $param, "value" => $value);
@@ -175,8 +177,30 @@ if (!extension_loaded('pgsql') && extension_loaded('mysqli'))
 					else
 						$value .= $string[$i];
 				}
-				else if ($string[$i] == '=')
+				else if ($string[$i] == "=")
+				{
 					$is_value = true;
+					while ($string[$i + 1] == " ")
+						$i++;
+				}
+				else if ($string[$i] == " ")
+				{
+					while ($string[$i + 1] == " ")
+						$i++;
+					if ($string[$i + 1] == "=")
+					{
+						$i++;
+						$is_value = true;
+						while ($string[$i + 1] == " ")
+							$i++;
+					}
+					else
+					{
+						$return[] = Array("param" => $param, "value" => $value);
+						$param = "";
+						$value = "";
+					}
+				}
 				else
 					$param .= $string[$i];
 			}
