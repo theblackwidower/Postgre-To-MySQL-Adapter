@@ -16,7 +16,7 @@ GNU Lesser General Public License for more details.
 You should have received a copy of the GNU Lesser General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
------------------------------------------------
+--------------------------------------------------
 
 Known Issues:
 	pg_connect, pg_delete, pg_insert, pg_update,
@@ -240,7 +240,7 @@ if (!extension_loaded('pgsql') && extension_loaded('mysqli'))
 			}
 			if (!$this->is_error)
 			{
-				$this->mysqli_connection = new mysqli($this->hostname, $username, $password, $this->database, $db_port);
+				$this->mysqli_connection = new mysqli($this->hostname, $username, $password, $this->database, $this->port);
 				if ($this->mysqli_connection->connect_errno !== 0)
 					$this->is_error = true;
 				else
@@ -299,10 +299,8 @@ if (!extension_loaded('pgsql') && extension_loaded('mysqli'))
 					$result = $this->options;
 					break;
 				default:
-					$result = null;
+					$result = false;
 			}
-			if ($result == null)
-				$result = false;
 
 			return $result;
 		}
@@ -681,7 +679,7 @@ if (!extension_loaded('pgsql') && extension_loaded('mysqli'))
 	Adapted Postgre functions
 	************************/
 	function pg_connect($connection_string) //Still needs work //no connection type
-	{										//PGSQL_CONNECT_FORCE_NEW, PGSQL_CONNECT_ASYNC
+	{					//PGSQL_CONNECT_FORCE_NEW, PGSQL_CONNECT_ASYNC
 		$link = new np_p2m_link($connection_string);
 
 		if ($link->is_error())
